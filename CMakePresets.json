@@ -1,0 +1,52 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "mac",
+      "displayName": "Mac test bench (SDL2 + software renderer)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/mac",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      },
+      "environment": {
+        "PKG_CONFIG_PATH": "/opt/homebrew/opt/ffmpeg@7/lib/pkgconfig:/opt/homebrew/lib/pkgconfig"
+      }
+    },
+    {
+      "name": "switch",
+      "displayName": "Nintendo Switch .nro (devkitA64)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/switch",
+      "toolchainFile": "/opt/devkitpro/cmake/Switch.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PKG_CONFIG_EXECUTABLE": "/opt/devkitpro/portlibs/switch/bin/aarch64-none-elf-pkg-config"
+      },
+      "environment": {
+        "DEVKITPRO": "/opt/devkitpro",
+        "DEVKITA64": "/opt/devkitpro/devkitA64"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "mac",
+      "configurePreset": "mac"
+    },
+    {
+      "name": "switch",
+      "configurePreset": "switch",
+      "jobs": 4
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "mac",
+      "configurePreset": "mac",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

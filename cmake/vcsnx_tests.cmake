@@ -1,0 +1,28 @@
+# VCSNX's own unit tests (Mac only). Each test is a plain executable using tests/test_support.hpp.
+function(vcsnx_add_test name)
+    add_executable(${name} ${ARGN})
+    target_include_directories(${name} PRIVATE
+        "${CMAKE_SOURCE_DIR}/tests" "${VCSNX_PLATFORM_DIR}" "${VCSNX_PROFILE_DIR}/host")
+    target_link_libraries(${name} PRIVATE psprecomp_core)
+    add_test(NAME ${name} COMMAND ${name})
+endfunction()
+
+vcsnx_add_test(test_threads tests/platform/test_threads.cpp platform/switch/threads.cpp)
+vcsnx_add_test(test_cpu_clock tests/platform/test_cpu_clock.cpp platform/switch/cpu_clock.cpp)
+vcsnx_add_test(test_gpu_frame_hold tests/platform/test_gpu_frame_hold.cpp platform/switch/gpu_frame_hold.cpp)
+vcsnx_add_test(test_copy_present tests/platform/test_copy_present.cpp platform/switch/copy_present.cpp)
+vcsnx_add_test(test_hw_verify tests/platform/test_hw_verify.cpp platform/switch/hw_verify.cpp)
+vcsnx_add_test(test_hud_scale tests/platform/test_hud_scale.cpp platform/switch/hud_scale.cpp)
+vcsnx_add_test(test_frame_budget tests/platform/test_frame_budget.cpp platform/switch/frame_budget.cpp)
+vcsnx_add_test(test_present_phases tests/platform/test_present_phases.cpp platform/switch/present_phases.cpp)
+vcsnx_add_test(test_ge_filters tests/platform/test_ge_filters.cpp platform/switch/ge_filters.cpp)
+vcsnx_add_test(test_boot_splash tests/platform/test_boot_splash.cpp platform/switch/boot_splash.cpp)
+vcsnx_add_test(test_pad_mapping tests/platform/test_pad_mapping.cpp platform/switch/pad_mapping.cpp)
+vcsnx_add_test(test_perf_log tests/platform/test_perf_log.cpp platform/switch/perf_log.cpp)
+vcsnx_add_test(test_stderr_tee tests/platform/test_stderr_tee.cpp platform/switch/stderr_tee.cpp
+    platform/switch/perf_log.cpp platform/switch/memory_usage.cpp)
+vcsnx_add_test(test_startup_rules tests/platform/test_startup_rules.cpp platform/switch/startup_rules.cpp)
+vcsnx_add_test(test_memory_usage tests/platform/test_memory_usage.cpp platform/switch/memory_usage.cpp)
+vcsnx_add_test(test_present_math tests/platform/test_present_math.cpp)
+vcsnx_add_test(test_gpu_backend_null tests/platform/test_gpu_backend_null.cpp platform/switch/ge_gpu_backend_null.cpp)
+vcsnx_add_test(test_runtime_paths tests/platform/test_runtime_paths.cpp)

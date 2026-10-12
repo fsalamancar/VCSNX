@@ -1,0 +1,39 @@
+# Game data: never commit (user-supplied copy, copyrighted)
+PSP_DATA/
+PSP_GAME/
+SAVEDATA/
+*.iso
+*.cso
+*.ELF
+EBOOT*.BIN
+BOOT.BIN
+*.PMF
+*.AT3
+# Code generated from the game executable: regenerated locally, never committed
+/vendor/vcs-recomp/profiles/vcs/generated/
+/generated/
+# Build outputs
+/build/
+/out/
+*.nro
+*.nacp
+*.nso
+*.npdm
+*.o
+*.obj
+*.exe
+*.dll
+*.pdb
+*.lib
+# Runtime logs
+*.log
+# Local tooling / OS noise
+.DS_Store
+._*
+/temp/
+/.cache/
+# Python bytecode
+__pycache__/
+
+# User-supplied art (e.g. the cover the .nro icon is cut from): local only, never committed
+/local/
