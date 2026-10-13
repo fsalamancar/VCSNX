@@ -10,10 +10,9 @@ Your `vcs_game.so` keeps working: you do not need to run the Builder again. (If 
 own icon, the new one has the default icon; to get yours back, open the new Builder with your image: it only
 takes seconds.)
 
-**New players:** download `VCSNX-Builder-0.1.0.zip` from the
-[v0.1.0 release](https://github.com/fsalamancar/VCSNX/releases/tag/v0.1.0) (the program has not changed) and this
-`vcsnx.nro`; unzip the Builder and copy this `vcsnx.nro` into its `kit` folder, replacing the one there, then
-follow the README. You need the `PSP_DATA` folder of the VCS PC port (VCSNative), set up with your own copy
+**New players:** download the Builder once, [`VCSNX-Builder-0.1.0.zip`](https://github.com/fsalamancar/VCSNX/releases/download/v0.1.0/VCSNX-Builder-0.1.0.zip) (it does not change with updates),
+and the newest runtime, [`vcsnx.nro`](https://github.com/fsalamancar/VCSNX/releases/latest/download/vcsnx.nro); unzip the Builder and copy `vcsnx.nro` into its `kit` folder,
+replacing the one there, then follow the README. You need the `PSP_DATA` folder of the VCS PC port (VCSNative), set up with your own copy
 (ULUS-10160, US). No game files are included.
 
 **If something goes wrong:** the logs of the session that failed are kept as `vcsnx_boot.prev.log` and
@@ -31,10 +30,9 @@ hilo que los carga y esperaba para siempre.
 sigue sirviendo: no hace falta volver a usar el Builder. (Si hiciste tu `vcsnx.nro` con tu propio ícono, el nuevo
 trae el de por defecto; para recuperar el tuyo, abre el Builder nuevo con tu imagen: tarda segundos.)
 
-**Si es la primera vez:** baja `VCSNX-Builder-0.1.0.zip` del
-[release v0.1.0](https://github.com/fsalamancar/VCSNX/releases/tag/v0.1.0) (el programa no cambió) y este
-`vcsnx.nro`; descomprime el Builder y copia este `vcsnx.nro` dentro de su carpeta `kit`, reemplazando el que está,
-y sigue el README. Necesitas la carpeta `PSP_DATA` del port de PC de VCS (VCSNative), armada con tu propia copia
+**Si es la primera vez:** baja el Builder una sola vez, [`VCSNX-Builder-0.1.0.zip`](https://github.com/fsalamancar/VCSNX/releases/download/v0.1.0/VCSNX-Builder-0.1.0.zip) (no cambia con las
+actualizaciones), y el runtime más nuevo, [`vcsnx.nro`](https://github.com/fsalamancar/VCSNX/releases/latest/download/vcsnx.nro); descomprime el Builder y copia `vcsnx.nro` dentro de
+su carpeta `kit`, reemplazando el que está, y sigue el README. Necesitas la carpeta `PSP_DATA` del port de PC de VCS (VCSNative), armada con tu propia copia
 (ULUS-10160, EE. UU.). No incluye archivos del juego.
 
 **Si algo falla:** los logs de la sesión que falló quedan como `vcsnx_boot.prev.log` y `vcsnx_stderr.prev.log` en

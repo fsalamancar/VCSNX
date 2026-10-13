@@ -10,7 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/fsalamancar/VCSNX/releases/latest"><b>Download</b></a> ·
+  <a href="https://github.com/fsalamancar/VCSNX/releases/download/v0.1.0/VCSNX-Builder-0.1.0.zip"><b>Builder (once)</b></a> ·
+  <a href="https://github.com/fsalamancar/VCSNX/releases/latest/download/vcsnx.nro"><b>vcsnx.nro (latest)</b></a> ·
   <a href="#install-step-by-step">Install</a> ·
   <a href="#controls">Controls</a> ·
   <a href="#en-español">En español</a>
@@ -32,10 +33,10 @@
 
 ## Install, step by step
 
-1. **Download two files:** `VCSNX-Builder-0.1.0.zip` from
-   [release v0.1.0](https://github.com/fsalamancar/VCSNX/releases/tag/v0.1.0) (the program) and `vcsnx.nro`
-   from the [latest release](https://github.com/fsalamancar/VCSNX/releases/latest) (the runtime, with the
-   latest fixes).
+1. **Download the two parts:**
+   - **The Builder, once:** [`VCSNX-Builder-0.1.0.zip`](https://github.com/fsalamancar/VCSNX/releases/download/v0.1.0/VCSNX-Builder-0.1.0.zip). It does not change with updates.
+   - **The runtime, always the newest:** [`vcsnx.nro`](https://github.com/fsalamancar/VCSNX/releases/latest/download/vcsnx.nro). This link always gives the latest one; it is the
+     part that gets the fixes.
 2. **Unzip the Builder** to a folder without accents, for example `C:\VCSNX-Builder` (right-click → *Extract
    All*). Then **copy the `vcsnx.nro` you downloaded into its `kit` folder**, replacing the one there: the
    Builder uses that file for your icon and your SD card.
@@ -63,10 +64,9 @@ sdmc:/switch/vcsnx/
 └── PSP_DATA/        the game's files
 ```
 
-**Updates:** download the new `vcsnx.nro` from Releases and replace it on the SD card. `vcs_game.so`
-keeps working unless VCSNX says it must be made again; then download that release's
-`VCSNX-Builder-<version>.zip`, unzip it into your Builder folder (replace the files) and click *Create* again.
-The old Builder would make the old `vcs_game.so` again.
+**Updates:** only `vcsnx.nro` changes. Download it again from the same link ([`vcsnx.nro`](https://github.com/fsalamancar/VCSNX/releases/latest/download/vcsnx.nro)) and replace
+`sdmc:/switch/vcsnx/vcsnx.nro` on the SD card; the Builder and your `vcs_game.so` stay as they are. Only if
+VCSNX itself says that `vcs_game.so` must be made again does a release bring a new Builder, and its notes say so.
 
 ### If something goes wrong
 
@@ -207,10 +207,10 @@ del juego se recompila para la Switch, en tu PC, con tu propia copia.</p>
 
 ### Instalación paso a paso
 
-1. **Baja dos archivos:** `VCSNX-Builder-0.1.0.zip` del
-   [release v0.1.0](https://github.com/fsalamancar/VCSNX/releases/tag/v0.1.0) (el programa) y `vcsnx.nro` del
-   [último release](https://github.com/fsalamancar/VCSNX/releases/latest) (el runtime, con los últimos
-   arreglos).
+1. **Baja las dos partes:**
+   - **El Builder, una sola vez:** [`VCSNX-Builder-0.1.0.zip`](https://github.com/fsalamancar/VCSNX/releases/download/v0.1.0/VCSNX-Builder-0.1.0.zip). No cambia con las actualizaciones.
+   - **El runtime, siempre el más nuevo:** [`vcsnx.nro`](https://github.com/fsalamancar/VCSNX/releases/latest/download/vcsnx.nro). Este enlace entrega siempre el último; es la parte
+     que recibe los arreglos.
 2. **Descomprime el Builder** en una carpeta sin acentos, por ejemplo `C:\VCSNX-Builder` (clic derecho →
    *Extraer todo*). Luego **copia el `vcsnx.nro` que bajaste dentro de su carpeta `kit`**, reemplazando el que
    está: el Builder usa ese archivo para tu ícono y tu SD.
@@ -227,10 +227,9 @@ del juego se recompila para la Switch, en tu PC, con tu propia copia.</p>
 9. **A jugar.** En la Switch, mantén **R** mientras abres cualquier juego desde el menú HOME: se abre
    hbmenu con toda la memoria de la consola. Abre **VCSNX**.
 
-**Actualizaciones:** baja el `vcsnx.nro` nuevo de Releases y reemplázalo en la SD. `vcs_game.so` sigue
-sirviendo, salvo que VCSNX diga que hay que crearlo de nuevo; entonces baja el `VCSNX-Builder-<versión>.zip`
-de ese release, descomprímelo en tu carpeta del Builder (reemplazando los archivos) y pulsa *Crear* otra vez.
-El Builder viejo volvería a crear el `vcs_game.so` viejo.
+**Actualizaciones:** solo cambia `vcsnx.nro`. Bájalo otra vez del mismo enlace ([`vcsnx.nro`](https://github.com/fsalamancar/VCSNX/releases/latest/download/vcsnx.nro)) y reemplaza
+`sdmc:/switch/vcsnx/vcsnx.nro` en la SD; el Builder y tu `vcs_game.so` se quedan como están. Solo si VCSNX mismo dice
+que hay que crear `vcs_game.so` de nuevo, un release trae un Builder nuevo, y sus notas lo dicen.
 
 ### Si algo falla
 
