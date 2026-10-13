@@ -2,7 +2,7 @@
 // Loads a shared object into code memory on the console (spec §2.4): copies and relocates it with
 // ElfModule, maps it with svcMapProcessCodeMemory, sets RX/RW per page with svcSetProcessMemoryPermission,
 // flushes the caches and registers its .eh_frame so exceptions cross it. Adapted from
-// gtalcs_nx/source/so_util.c (MIT, (C) 2021 Andy Nguyen, fgsfds).
+// so_util.c (MIT, (C) 2021 Andy Nguyen, fgsfds; notice in builder/licenses/so_util-LICENSE.txt).
 
 #include "elf_module.hpp"
 

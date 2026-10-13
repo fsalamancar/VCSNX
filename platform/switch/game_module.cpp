@@ -90,7 +90,7 @@ std::optional<LoadedModule> load_module(const std::string &path, std::span<const
         error = "svcMapProcessCodeMemory failed: " + hex(rc);
         return std::nullopt;
     }
-    // The kernel forbids W->X on code memory: RX pages first, then the rest RW (as gtalcs_nx's so_finalize).
+    // The kernel forbids W->X on code memory: RX pages first, then the rest RW (as so_util.c's so_finalize).
     std::vector<bool> executable(size / kPage, false);
     for (const ModuleSegment &segment : segments)
         if (segment.executable)

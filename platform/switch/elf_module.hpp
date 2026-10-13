@@ -2,7 +2,7 @@
 // Reads an AArch64 shared object (ET_DYN) and prepares it to run at a given address: copies its loadable
 // segments into an image and applies its dynamic relocations, resolving imports from a name table. Pure
 // (no memory mapping), so the Mac tests it; platform/switch/game_module maps the image on the console.
-// Adapted from gtalcs_nx/source/so_util.c (MIT, (C) 2021 Andy Nguyen, fgsfds).
+// Adapted from so_util.c (MIT, (C) 2021 Andy Nguyen, fgsfds; notice in builder/licenses/so_util-LICENSE.txt).
 
 #include <cstddef>
 #include <cstdint>

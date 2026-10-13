@@ -1,7 +1,7 @@
 # VCSNX v0.1.0: `vcsnx.nro` publicable + VCSNX Builder (crea `vcs_game.so` en el PC de cada jugador)
 
 Spec aprobado por partes el 2026-10-11 y revisado el 2026-10-12. El usuario eligió partir el juego en dos, al
-estilo del port de Liberty City Stories (`NaGaa95/gtalcs_nx`): un `.nro` publicable sin nada del juego y un
+estilo de otros ports de Switch: un `.nro` publicable sin nada del juego y un
 módulo con el código del juego que cada jugador crea con su propia copia. Desarrolla el §13.5 del spec del port
 (`2026-10-11-vcsnx-switch-port-design.md`).
 
@@ -67,14 +67,14 @@ mantiene la huella, y el `vcs_game.so` del jugador sigue sirviendo.
 
 ### 2.4 El cargador (`platform/switch/`)
 
-- Adaptado del `so_util.c` de `gtalcs_nx` (MIT, © 2021 Andy Nguyen y fgsfds), con su crédito en el archivo y en
+- Adaptado de `so_util.c` (MIT, © 2021 Andy Nguyen y fgsfds), con su crédito en el archivo y en
   `THIRD_PARTY.md`.
 - Parte pura, probada en el Mac (`elf_module.{hpp,cpp}`): lee los `PT_LOAD` y la sección dinámica, aplica las
   relocaciones (`R_AARCH64_RELATIVE`, `ABS64`, `GLOB_DAT`, `JUMP_SLOT`) en un buffer y resuelve los símbolos con
   una tabla `{nombre, dirección}`; un símbolo que falta es un error con su nombre.
 - Parte de la Switch (`game_module.{hpp,cpp}`): reserva memoria de código (`virtmemFindCodeMemory`), la mapea
   con `svcMapProcessCodeMemory` y le da permisos por segmento con `svcSetProcessMemoryPermission`, como
-  `gtalcs_nx`; registra el `.eh_frame` del módulo con `__register_frame` para que las excepciones lo atraviesen.
+  `so_util.c`; registra el `.eh_frame` del módulo con `__register_frame` para que las excepciones lo atraviesen.
 - La tabla de importaciones (`game_module_imports.S`, generada por `tools/make_module_imports.py` a partir de
   los símbolos sin resolver del módulo) va dentro del runtime: obliga al linker a incluir esas 56 funciones y
   da sus direcciones al cargador.
@@ -211,7 +211,7 @@ Windows está en español, si no inglés. "Ver detalles" muestra el log, que que
 
 | Riesgo | Mitigación |
 |---|---|
-| El mapeo de memoria de código falla en la consola | Es la prueba 2, antes de todo; `gtalcs_nx` usa lo mismo en modo aplicación |
+| El mapeo de memoria de código falla en la consola | Es la prueba 2, antes de todo; `so_util.c` usa lo mismo en modo aplicación |
 | Las excepciones no atraviesan el módulo | La prueba 2 lanza y atrapa una a través de la frontera; `.eh_frame` registrado con `__register_frame` |
 | Un update del runtime cambia la interfaz sin querer | La huella lo detecta y el mensaje pide recrear el módulo |
 | El compilador de devkitPro para Windows no corre fuera de MSYS2 | Prueba con Wine al principio; sus `.exe` solo importan KERNEL32, msvcrt y rpcrt4 |

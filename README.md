@@ -159,8 +159,8 @@ The Builder's design is in `docs/superpowers/specs/2026-10-11-vcsnx-builder-desi
 - [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp) and
   [vice-city-stories-recomp](https://github.com/OverkillLabs3/vice-city-stories-recomp) (MIT): the
   recompiler and the game profile in `vendor/` (see `UPSTREAM.md`).
-- [gtalcs_nx](https://github.com/NaGaa95/gtalcs_nx) (MIT, Andy Nguyen and fgsfds): the game-module loader
-  is adapted from its `so_util.c`.
+- The game-module loader is adapted from `so_util.c` by Andy Nguyen and fgsfds (MIT,
+  `builder/licenses/so_util-LICENSE.txt`).
 - [mesa-switch](https://github.com/danfromtico/mesa-switch) (the Vulkan driver), devkitPro, SDL2,
   FFmpeg (LGPL 2.1) and stb. Full list: `builder/licenses/THIRD_PARTY.md`.
 - Banner fonts: Neonderthaw, Audiowide and Pacifico (SIL Open Font License 1.1).

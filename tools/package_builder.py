@@ -32,7 +32,7 @@ REQUIRED_LICENSES = (
     "THIRD_PARTY.md", "SOURCES.md",
     "GPL-3.0.txt", "GPL-2.0.txt", "LGPL-3.0.txt", "GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt",
     "newlib-COPYING.NEWLIB.txt", "newlib-COPYING.LIBGLOSS.txt",
-    "gtalcs_nx-LICENSE.txt", "libnx-LICENSE.md", "SDL2-LICENSE.txt", "mesa-license.rst", "mesa-MIT.txt",
+    "so_util-LICENSE.txt", "libnx-LICENSE.md", "SDL2-LICENSE.txt", "mesa-license.rst", "mesa-MIT.txt",
     "dav1d-COPYING.txt", "expat-COPYING.txt", "bzip2-LICENSE.txt", "zlib-LICENSE.txt", "zstd-LICENSE.txt",
 )
 

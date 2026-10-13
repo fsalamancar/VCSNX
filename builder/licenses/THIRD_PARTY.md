@@ -16,7 +16,7 @@
 
 | Component | Version | License | Source |
 |---|---|---|---|
-| Game-module loader (platform/switch/elf_module, game_module) | adapted from gtalcs_nx so_util.c | MIT, (C) 2021 Andy Nguyen, fgsfds (`gtalcs_nx-LICENSE.txt`) | https://github.com/NaGaa95/gtalcs_nx |
+| Game-module loader (platform/switch/elf_module, game_module) | adapted from so_util.c | MIT, (C) 2021 Andy Nguyen, fgsfds (`so_util-LICENSE.txt`) | this repository |
 | PSPRecomp runtime and the vice-city-stories-recomp profile | f6e7d41 / b5a861d | MIT | see above |
 | mesa-switch (Vulkan) | 606441c | MIT (`mesa-license.rst`, `mesa-MIT.txt`) | https://github.com/danfromtico/mesa-switch |
 | switch-mesa EGL, renamed copy | 20.1.0 | MIT | https://github.com/devkitPro/pacman-packages |

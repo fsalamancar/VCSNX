@@ -26,5 +26,5 @@ This license does not cover:
   reserved. They may be redistributed unchanged as part of this project and its builds, and not
   used elsewhere.
 - assets/readme/: the README banner, (c) 2026 bAlo productions, on the same terms.
-- The game-module loader in platform/switch/elf_module.* and game_module.* is adapted from gtalcs_nx's
-  so_util.c: MIT, (c) 2021 Andy Nguyen, fgsfds; its notice is in builder/licenses/gtalcs_nx-LICENSE.txt.
+- The game-module loader in platform/switch/elf_module.* and game_module.* is adapted from so_util.c:
+  MIT, (c) 2021 Andy Nguyen, fgsfds; its notice is in builder/licenses/so_util-LICENSE.txt.

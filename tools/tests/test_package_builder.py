@@ -63,7 +63,7 @@ class PackageBuilderTest(unittest.TestCase):
     def test_a_release_without_every_license_text_is_refused(self) -> None:
         self.assertEqual([n for n in REQUIRED_LICENSES if n != "THIRD_PARTY.md"], missing_licenses(self.tree({"THIRD_PARTY.md": b"list"})))
         self.assertIn("GPL-3.0.txt", REQUIRED_LICENSES)
-        self.assertIn("gtalcs_nx-LICENSE.txt", REQUIRED_LICENSES)
+        self.assertIn("so_util-LICENSE.txt", REQUIRED_LICENSES)
 
     def test_the_repository_carries_every_license_text(self) -> None:
         self.assertEqual([], missing_licenses(ROOT / "builder" / "licenses"))

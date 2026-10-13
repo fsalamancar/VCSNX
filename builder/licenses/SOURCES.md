@@ -20,7 +20,7 @@ and we will provide the complete corresponding source of the versions shipped he
 
 ## vcsnx.nro
 
-- VCSNX itself, including the game-module loader adapted from gtalcs_nx: https://github.com/fsalamancar/VCSNX
+- VCSNX itself, including the game-module loader adapted from so_util.c: https://github.com/fsalamancar/VCSNX
   (this repository; MIT).
 - FFmpeg 7.1 (LGPL-2.1, `FFmpeg-COPYING.LGPLv2.1`), linked statically: https://ffmpeg.org/releases/ and
   devkitPro's build, https://github.com/devkitPro/pacman-packages. VCSNX's source above lets you rebuild

@@ -54,7 +54,7 @@ La corrida 2 va más lenta porque cada frame escribe dos líneas de diagnóstico
 - **Reloj de la CPU:** a 1785 MHz funciona (`[vcsnx-clock] cpu previous=1020 MHz target=1785 MHz`), pero es **opcional** con `VCSNX_CPU_MHZ`. El usuario prefiere el reloj de serie y usa sys-clk por su cuenta, y un boost reaplicado cada 2 s pelearía con esa herramienta.
 - **Audio:** se oye mal porque el juego corre en cámara lenta (el audio sale al ritmo del juego). Se arregla cuando el GE sea más rápido: Plan 3, transformación de vértices en la GPU.
 - **Destello verde** al llegar a la pantalla de carga, después del segundo video: sigue igual con el GE en el hilo del juego (corrida 5), así que no viene del GE asíncrono. Queda pendiente aparte.
-- **Referencia del usuario:** el port de Liberty City Stories para Switch (`NaGaa95/gtalcs_nx`) no emula la PSP: corre el binario de Android con su propio OpenGL ES. VCS no tiene versión Android. Lo único reutilizable es subir la CPU solo durante las cargas (`appletSetCpuBoostMode`).
+- **Referencia del usuario:** otro port de Switch que el usuario indicó no emula la PSP: corre un binario de Android con su propio OpenGL ES. VCS no tiene versión Android. Lo único reutilizable es subir la CPU solo durante las cargas (`appletSetCpuBoostMode`).
 
 ## Problemas visuales
 

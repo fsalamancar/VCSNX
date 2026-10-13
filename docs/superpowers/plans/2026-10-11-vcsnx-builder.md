@@ -4,7 +4,7 @@
 
 **Goal:** Publicar un `vcsnx.nro` sin nada del juego y un VCSNX Builder para Windows que crea `vcs_game.so` (el código traducido del juego) en el PC de cada jugador, desde su propia copia de ULUS-10160.
 
-**Architecture:** En la Switch, el runtime carga `vcs_game.so` con un cargador adaptado del de `gtalcs_nx` (MIT): parte pura (`elf_module`, probada en el Mac) + mapeo de memoria de código (`game_module`, solo Switch); el `main.cpp` del vendor no cambia porque `register_generated_functions` pasa por un puente. CMake parte el build de la Switch en runtime + módulo. El Builder (`Builder.Core` .NET 10 probado en el Mac, `Builder.Cli`, `Builder.App` WinForms) compila los 235 archivos traducidos con el toolchain oficial de devkitPro para Windows y enlaza el módulo con un kit pequeño.
+**Architecture:** En la Switch, el runtime carga `vcs_game.so` con un cargador adaptado de `so_util.c` (MIT): parte pura (`elf_module`, probada en el Mac) + mapeo de memoria de código (`game_module`, solo Switch); el `main.cpp` del vendor no cambia porque `register_generated_functions` pasa por un puente. CMake parte el build de la Switch en runtime + módulo. El Builder (`Builder.Core` .NET 10 probado en el Mac, `Builder.Cli`, `Builder.App` WinForms) compila los 235 archivos traducidos con el toolchain oficial de devkitPro para Windows y enlaza el módulo con un kit pequeño.
 
 **Tech Stack:** C++20 / libnx (cargador), CMake, Python 3 (scripts de `tools/`, unittest), C# / .NET 10 (WinForms, xUnit, SkiaSharp), devkitA64 GCC 16.1.0, Wine 11.
 
@@ -18,7 +18,7 @@
 - Ejecutables válidos (SHA-256): `85c5e172fa0207086b72a37649e9a10d47845f0866b0dee179c48d930e43d17f` (EBOOT desencriptado) y `fee2e86c7fe457ab6da463d9fdc16f156a0900adcdaa2fd260206c11907c5d65` (`PSP_GAME/SYSDIR/BOOT.BIN`).
 - Módulo: `switch/vcsnx/vcs_game.so`, ELF compartido AArch64 enlazado con `-shared -nostdlib -Wl,-Bsymbolic` + `-lgcc`; exporta `vcsnx_register_generated_functions(psprecomp::Runtime*)` y `vcsnx_module_abi`.
 - Huella de interfaz: SHA-256 de los headers de `vendor/` de los que depende el código traducido (`tools/module_abi.py`); la misma en el kit, el módulo y el runtime.
-- El cargador se adapta de `gtalcs_nx/source/so_util.c` (MIT, © 2021 Andy Nguyen y fgsfds) con crédito en el archivo y en `THIRD_PARTY.md`.
+- El cargador se adapta de `so_util.c` (MIT, © 2021 Andy Nguyen y fgsfds) con crédito en el archivo y en `THIRD_PARTY.md`.
 - Mensajes de la consola: solo ASCII (la consola de libnx no muestra otra cosa).
 - La ventana dice solo **`bAlo`** en el encabezado. Idioma: español si `CurrentUICulture` es `es-*`, si no inglés.
 - Carpetas junto al `.exe`: `toolchain\`, `kit\`, `hashes\`, `trabajo\` (objetos en `trabajo\g\`) y `salida\`. La carpeta del programa debe ser solo ASCII (las herramientas de Windows de devkitPro no aceptan otras rutas); los espacios están permitidos.
@@ -441,7 +441,7 @@ endif()
 // Reads an AArch64 shared object (ET_DYN) and prepares it to run at a given address: copies its loadable
 // segments into an image and applies its dynamic relocations, resolving imports from a name table. Pure
 // (no memory mapping), so the Mac tests it; platform/switch/game_module maps the image on the console.
-// Adapted from gtalcs_nx/source/so_util.c (MIT, (C) 2021 Andy Nguyen, fgsfds).
+// Adapted from so_util.c (MIT, (C) 2021 Andy Nguyen, fgsfds).
 
 #include <cstddef>
 #include <cstdint>
@@ -872,7 +872,7 @@ Expected: `Ran 2 tests ... OK`
 // Loads a shared object into code memory on the console (spec §2.4): copies and relocates it with
 // ElfModule, maps it with svcMapProcessCodeMemory, sets RX/RW per page with svcSetProcessMemoryPermission,
 // flushes the caches and registers its .eh_frame so exceptions cross it. Adapted from
-// gtalcs_nx/source/so_util.c (MIT, (C) 2021 Andy Nguyen, fgsfds).
+// so_util.c (MIT, (C) 2021 Andy Nguyen, fgsfds).
 
 #include "elf_module.hpp"
 
@@ -1007,7 +1007,7 @@ std::optional<LoadedModule> load_module(const std::string &path, std::span<const
         error = "svcMapProcessCodeMemory failed: " + hex(rc);
         return std::nullopt;
     }
-    // The kernel forbids W->X on code memory: RX pages first, then the rest RW (as gtalcs_nx's so_finalize).
+    // The kernel forbids W->X on code memory: RX pages first, then the rest RW (as so_util.c's so_finalize).
     std::vector<bool> executable(size / kPage, false);
     for (const ModuleSegment &segment : segments)
         if (segment.executable)
@@ -4021,7 +4021,7 @@ Expected: `Ran 3 tests ... OK`
 
 | Component | Version | License | Source |
 |---|---|---|---|
-| Game-module loader (platform/switch/elf_module, game_module) | adapted from gtalcs_nx so_util.c | MIT, (C) 2021 Andy Nguyen, fgsfds | https://github.com/NaGaa95/gtalcs_nx |
+| Game-module loader (platform/switch/elf_module, game_module) | adapted from so_util.c | MIT, (C) 2021 Andy Nguyen, fgsfds | this repository |
 | PSPRecomp runtime and the vice-city-stories-recomp profile | f6e7d41 / b5a861d | MIT | see above |
 | mesa-switch (Vulkan) | 606441c | MIT | https://github.com/danfromtico/mesa-switch |
 | switch-mesa EGL, renamed copy | 20.1 | MIT | https://github.com/devkitPro/pacman-packages |
