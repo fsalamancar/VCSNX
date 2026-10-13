@@ -6,6 +6,10 @@
 #include "startup_rules.hpp"
 #include "vcs_bootstrap_paths.hpp"
 #include "vcsnx_platform.hpp"
+#if defined(VCSNX_GAME_MODULE)
+#include "game_module.hpp"
+extern "C" const vcsnx::RawImport vcsnx_module_imports[];
+#endif
 
 #include <netinet/in.h>
 #include <switch.h>
@@ -57,6 +61,21 @@ std::string read_text_file(const std::string &path) {
     std::exit(0);
 }
 
+#if defined(VCSNX_GAME_MODULE)
+// Loads sdmc:/switch/vcsnx/vcs_game.so before main(), while the libnx console can still show a message.
+void load_game_module_or_exit(const std::string &data) {
+    const std::string path = data + "/vcs_game.so";
+    if (!file_exists(path)) show_message_and_exit(vcsnx::module_missing_message());
+    std::string error;
+    constexpr std::string_view kExports[] = {"vcsnx_register_generated_functions", "vcsnx_module_abi"};
+    const auto module = vcsnx::load_module(path, vcsnx::module_imports(vcsnx_module_imports), kExports, error);
+    if (!module) show_message_and_exit(vcsnx::module_load_message(error));
+    if (std::string_view(static_cast<const char *>(module->symbols[1])) != VCSNX_MODULE_ABI)
+        show_message_and_exit(vcsnx::module_mismatch_message());
+    vcsnx::set_game_module_entry(module->symbols[0]);
+}
+#endif
+
 // Runs during static initialisation, before main() and before any vendor code reads the
 // environment (the vendor reads PSPRECOMP_* lazily on first use).
 struct StartupChecks {
@@ -101,6 +120,9 @@ struct StartupChecks {
             facts.executable = vcsnx::ExecutableState::Missing;
         }
         if (const auto problem = vcsnx::startup_problem(facts)) show_message_and_exit(*problem);
+#if defined(VCSNX_GAME_MODULE)
+        load_game_module_or_exit(data);
+#endif
 
         // Without nxlink nothing reads stdout/stderr, and the stderr tee only starts with the
         // window; everything printed before that (bootstrap errors, "VCSNative error: ...")

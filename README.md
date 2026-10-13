@@ -1,64 +1,87 @@
-# VCSNX — GTA: Vice City Stories on Nintendo Switch
+<p align="center">
+  <img src="assets/readme/banner.png" alt="GTA: Vice City Stories — Nintendo Switch · bAlo productions" width="100%">
+</p>
 
-A native Nintendo Switch port of **Grand Theft Auto: Vice City Stories** (PSP, ULUS-10160). It is not
-an emulator: the game's code is statically recompiled to C++ by
-[PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp) and the
-[vice-city-stories-recomp](https://github.com/OverkillLabs3/vice-city-stories-recomp) profile, and this
-project builds it for the Switch with devkitPro, SDL2 and a Vulkan renderer (Mesa NVK).
+<h1 align="center">VCSNX</h1>
 
-> **No game files are included, and none are ever downloaded for you.** You need your own legally
-> obtained copy of the PSP game (UMD or PSN, US version ULUS-10160). This project is not affiliated
-> with or endorsed by Rockstar Games or Take-Two Interactive.
+<p align="center">
+  <b>Grand Theft Auto: Vice City Stories</b> (PSP) running natively on the Nintendo Switch.<br>
+  Not an emulator: the game's code is recompiled for the Switch, on your own PC, from your own copy.
+</p>
 
-Para leerlo en español, ve a [En español](#en-español).
+<p align="center">
+  <a href="https://github.com/fsalamancar/VCSNX/releases/latest"><b>Download</b></a> ·
+  <a href="#install-step-by-step">Install</a> ·
+  <a href="#controls">Controls</a> ·
+  <a href="#en-español">En español</a>
+</p>
+
+> [!IMPORTANT]
+> **No game files are included, and none are downloaded for you.** You need your own copy of the PSP
+> game: the US version, **ULUS-10160 v1.03**. This project is not affiliated with Rockstar Games,
+> Take-Two Interactive, Sony or Nintendo. See [Legal](#legal).
+
+## What you need
+
+- A Nintendo Switch that runs homebrew (Atmosphère with hbmenu).
+- A Windows 10 or 11 PC (64-bit), with internet the first time and about 5 GB free.
+- **The PC port of GTA: Vice City Stories**
+  ([VCSNative](https://github.com/OverkillLabs3/vice-city-stories-recomp)) **set up with your own copy**:
+  VCSNX uses its same `PSP_DATA` folder, with the decrypted executable
+  `PSP_GAME\SYSDIR\EBOOT_DECRYPTED.ELF` and `PSP_GAME\USRDIR`. Prepare it as that port explains; if
+  VCSNative already runs on your PC, the folder is ready.
+
+## Install, step by step
+
+1. **Download** `VCSNX-Builder-0.1.0.zip` from [Releases](https://github.com/fsalamancar/VCSNX/releases/latest).
+   It has everything: the program and `vcsnx.nro`.
+2. **Unzip it** to a folder without accents, for example `C:\VCSNX-Builder` (right-click → *Extract All*).
+3. **Open `VCSNX-Builder.exe`**: the *GTA VCS Compiler* window opens. If Windows says *"Windows protected
+   your PC"*, click *More info* → *Run anyway*.
+4. **1. Your game:** click **Choose** and pick your `PSP_DATA` folder. After a moment it shows
+   **✓ GTA Vice City Stories ULUS-10160 1.03**. If it shows a message instead, the message says what to do.
+5. **2. Icon (optional):** any PNG or JPG for the icon in hbmenu.
+6. **3. SD card (optional):** put the Switch's SD card in the PC and pick it in the list.
+7. **Click "Create vcs_game.so".** The first time it downloads the recompiled code and compiles it:
+   about **20–60 minutes**, depending on the PC. You can cancel; next time it carries on where it stopped.
+8. **Done.** If you picked the SD card, everything is already on it. If not, copy these to
+   `sdmc:/switch/vcsnx/` on the SD card: `salida\vcsnx.nro`, `salida\vcs_game.so`, `kit\VCSNative.ini`
+   and your `PSP_DATA` folder.
+9. **Play.** On the Switch, hold **R** while you open any game from the HOME menu: hbmenu opens with
+   the console's full memory. Open **VCSNX**.
+
+The SD card ends up like this:
+
+```
+sdmc:/switch/vcsnx/
+├── vcsnx.nro        the runtime (from the release)
+├── vcs_game.so      the game's code (made on your PC)
+├── VCSNative.ini    settings
+└── PSP_DATA/        the game's files
+```
+
+**Updates:** download the new `vcsnx.nro` from Releases and replace it on the SD card. `vcs_game.so`
+keeps working unless VCSNX says it must be made again; then download that release's
+`VCSNX-Builder-<version>.zip`, unzip it into your Builder folder (replace the files) and click *Create* again.
+The old Builder would make the old `vcs_game.so` again.
+
+### If something goes wrong
+
+| What you see | What to do |
+|---|---|
+| *"Windows protected your PC"* | *More info* → *Run anyway*. |
+| *"Move the program's folder to a path without accents…"* | Move the folder, for example to `C:\VCSNX-Builder`. |
+| Your antivirus blocks the compiler (`toolchain\devkitA64\...`) | Allow the program's folder and click *Create* again: what was compiled is kept. |
+| *"This copy is not GTA Vice City Stories ULUS-10160"* | Only the US version 1.03 works. |
+| *"The executable is encrypted"* | Prepare your `PSP_DATA` as the PC port (VCSNative) explains: the decrypted executable goes in `PSP_GAME\SYSDIR\EBOOT_DECRYPTED.ELF`. |
+| VCSNX says there is not enough memory | Open it holding **R** over a game, not from the Album. |
+| Anything else | The details are in `salida\builder.log`. Open an [issue](https://github.com/fsalamancar/VCSNX/issues) with it. |
 
 ## What you get
 
-- The full game rendered at 1280×720 (scaled to the TV when docked), with sound and the PSP's movies.
-- Switch controls: A/B/X/Y in place of the PSP's buttons, ZR/ZL to accelerate and brake, the right
-  stick for the camera, and on-screen prompts that name the Switch buttons.
+- The full game at 1280×720 (scaled to the TV when docked), with sound and the PSP's movies.
+- Switch controls, and on-screen prompts that name the Switch's buttons.
 - A smaller, sharper HUD (`[Display] HudScale` in `VCSNative.ini`).
-
-## Requirements
-
-**To play:** a Switch that runs homebrew (Atmosphère) and your copy of the game, decrypted (see
-step 3).
-
-**To build** (tested on macOS with Apple Silicon):
-- [devkitPro](https://devkitpro.org/wiki/Getting_Started) with `switch-dev`, `switch-sdl2`,
-  `switch-mesa`, `switch-ffmpeg`, `switch-libexpat` and `switch-libzstd`
-- Homebrew: `cmake ninja pkg-config python3 git rsync`
-- Docker Desktop (it builds the Switch's Vulkan driver once)
-
-`tools/check_toolchain.sh` checks all of this and says what is missing.
-
-## Build and install
-
-1. **Vulkan driver for the Switch** (once, about 10 minutes in Docker):
-   ```sh
-   tools/build_mesa_switch.sh
-   ```
-2. **Your game files.** Copy the disc's contents into a folder named `PSP_DATA`, so that it holds
-   `PSP_GAME/USRDIR/...`, and add the **decrypted** executable as
-   `PSP_DATA/PSP_GAME/SYSDIR/EBOOT_DECRYPTED.ELF`. PPSSPP can write it for you: enable
-   *Settings → Tools → Developer tools → Dump decrypted EBOOT.BIN on game boot* and start the game once.
-3. **The recompiled code**, after a check that your executable is ULUS-10160:
-   ```sh
-   tools/restore_generated.sh PSP_DATA/PSP_GAME/SYSDIR/EBOOT_DECRYPTED.ELF
-   ```
-4. **Build** the `.nro`:
-   ```sh
-   cmake --preset switch
-   cmake --build --preset switch      # → build/switch/vcsnx.nro
-   ```
-5. **Copy to the SD card** (mounted on your computer):
-   ```sh
-   tools/prepare_sd.sh PSP_DATA /Volumes/SWITCH
-   ```
-   This leaves `sdmc:/switch/vcsnx/` with `vcsnx.nro`, `VCSNative.ini` and `PSP_DATA/`.
-6. **Start it in application mode**: hold **R** while opening any game from the HOME menu to get
-   hbmenu (or Sphaira) with the full console memory, then open VCSNX. From the album applet it does
-   not have enough memory and says so.
 
 ## Controls
 
@@ -75,57 +98,157 @@ Each Switch button does what its PSP counterpart does in the original game:
 | R3, or L + R | L + R | In a vehicle: look behind |
 | + / − | START / SELECT | |
 
-The game's on-screen prompts name the Switch buttons. Inverted aiming can be turned off in the
-game's *Pause → Controls* menu.
+Inverted aiming can be turned off in the game's *Pause → Controls* menu.
 
-## Optional extras
+## How it works
 
-These are made from your own files, so they are not included:
-- **Pro Controller pictures in the Controls menu:** `python3 -I tools/make_switch_textures.py <folder>`, then
+The game's PSP code is statically recompiled to C++ by
+[PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp) with the
+[vice-city-stories-recomp](https://github.com/OverkillLabs3/vice-city-stories-recomp) profile. That code
+comes from the game, so it is never published here: the Builder downloads the recompiler's output, checks
+it file by file, and compiles it on your PC into `vcs_game.so`. `vcsnx.nro`, the part published here, has
+nothing of the game: it loads `vcs_game.so` when it starts, and draws with Vulkan (Mesa NVK), SDL2 and
+FFmpeg.
+
+## For developers: building everything by hand
+
+<details>
+<summary>Build the runtime and the game on macOS (Apple Silicon)</summary>
+
+**Requirements:**
+- [devkitPro](https://devkitpro.org/wiki/Getting_Started) with `switch-dev`, `switch-sdl2`,
+  `switch-mesa`, `switch-ffmpeg`, `switch-libexpat` and `switch-libzstd`
+- Homebrew: `cmake ninja pkg-config python3 git rsync`
+- Docker Desktop (it builds the Switch's Vulkan driver once)
+
+`tools/check_toolchain.sh` checks all of this and says what is missing.
+
+1. **Vulkan driver for the Switch** (once, about 10 minutes in Docker):
+   ```sh
+   tools/build_mesa_switch.sh
+   ```
+2. **Your game files:** the same `PSP_DATA` folder the PC port uses, with `PSP_GAME/USRDIR/...` and the
+   decrypted executable as `PSP_DATA/PSP_GAME/SYSDIR/EBOOT_DECRYPTED.ELF` (the UMD's own `EBOOT.BIN` is
+   encrypted and its `BOOT.BIN` is blank).
+3. **The recompiled code**, after a check that your executable is ULUS-10160:
+   ```sh
+   tools/restore_generated.sh PSP_DATA/PSP_GAME/SYSDIR/EBOOT_DECRYPTED.ELF
+   ```
+4. **Build:**
+   ```sh
+   cmake --preset switch
+   cmake --build --preset switch      # → build/switch/vcsnx.nro and vcs_game.so
+   ```
+5. **Copy to the SD card** (mounted on your computer):
+   ```sh
+   tools/prepare_sd.sh PSP_DATA /Volumes/SWITCH
+   ```
+
+The Builder's design is in `docs/superpowers/specs/2026-10-11-vcsnx-builder-design.md` and its code in
+`builder/` (.NET 10; `dotnet test builder/Builder.Core.Tests` runs on macOS).
+
+**Extras made from your own files** (not included):
+- Pro Controller pictures in the Controls menu: `python3 -I tools/make_switch_textures.py <folder>`, then
   copy the PNGs to `sdmc:/switch/vcsnx/Textures/` and set `[Textures] Replacement=true`.
-- **Sharper HUD fonts:** dump the originals with `DumpOriginals=true`, then run `tools/make_hd_hud.py`.
-- **HOME menu icon:** `tools/make_icon.py` cuts it from a cover image you provide (`local/icon.jpg`).
+- Sharper HUD fonts: dump the originals with `DumpOriginals=true`, then run `tools/make_hd_hud.py`.
+- HOME menu icon: `tools/make_icon.py` cuts it from a cover image you provide (`local/icon.jpg`).
+
+</details>
 
 ## Credits
 
 - [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp) and
   [vice-city-stories-recomp](https://github.com/OverkillLabs3/vice-city-stories-recomp) (MIT): the
   recompiler and the game profile in `vendor/` (see `UPSTREAM.md`).
+- [gtalcs_nx](https://github.com/NaGaa95/gtalcs_nx) (MIT, Andy Nguyen and fgsfds): the game-module loader
+  is adapted from its `so_util.c`.
 - [mesa-switch](https://github.com/danfromtico/mesa-switch) (the Vulkan driver), devkitPro, SDL2,
-  FFmpeg (LGPL 2.1) and stb.
-- Switch port, splash and sound: **studios bAlo**.
+  FFmpeg (LGPL 2.1) and stb. Full list: `builder/licenses/THIRD_PARTY.md`.
+- Banner fonts: Neonderthaw, Audiowide and Pacifico (SIL Open Font License 1.1).
+- Switch port, splash, sound and banner: **bAlo productions**.
 
-## License
+## Legal
 
-The code of this project is MIT ([LICENSE](LICENSE)). `vendor/` keeps its own licenses, and the
-"studios bAlo" logo and splash sound in `assets/splash/` are not MIT: they ship with this project
-and its builds, but may not be used elsewhere. Grand Theft Auto and Vice City Stories are trademarks
-of Take-Two Interactive; no part of the game is distributed here.
+- This project is not affiliated with, endorsed by or sponsored by Take-Two Interactive, Rockstar Games,
+  Sony Interactive Entertainment or Nintendo.
+- *Grand Theft Auto* and *Vice City Stories* are trademarks of Take-Two Interactive Software, Inc.;
+  *PSP* is a trademark of Sony Interactive Entertainment; *Nintendo Switch* is a trademark of Nintendo.
+  All other trademarks belong to their owners.
+- No game assets, game code or game executables are in this repository or its releases. The game's code
+  is made on your PC, from your copy, and stays with you.
+- We do not condone piracy. Use a copy of the game that you own.
+- The code of this project is MIT ([LICENSE](LICENSE)). `vendor/` keeps its own licenses. The bAlo logo
+  and splash sound in `assets/splash/` and the banner in `assets/readme/` are not MIT: they ship with
+  this project and its builds, but may not be used elsewhere.
 
 ---
 
 ## En español
 
-VCSNX es un port nativo de **GTA: Vice City Stories** (PSP, ULUS-10160) para Nintendo Switch. No es un
-emulador: el código del juego se recompila a C++ y se compila para la Switch.
+<p align="center"><b>GTA: Vice City Stories</b> (PSP) nativo en Nintendo Switch. No es un emulador: el código
+del juego se recompila para la Switch, en tu PC, con tu propia copia.</p>
 
-**No incluye archivos del juego.** Necesitas tu propia copia legal del juego de PSP (versión de EE. UU.,
-ULUS-10160).
+> [!IMPORTANT]
+> **No incluye archivos del juego ni los baja por ti.** Necesitas tu propia copia del juego de PSP: la
+> versión de EE. UU., **ULUS-10160 v1.03**. Este proyecto no tiene relación con Rockstar Games,
+> Take-Two Interactive, Sony ni Nintendo.
 
-**Para jugar:** una Switch con homebrew (Atmosphère) y tu copia del juego.
+### Qué necesitas
 
-**Pasos** (los detalles y comandos están arriba, en inglés):
-1. `tools/build_mesa_switch.sh`: el driver Vulkan de la Switch (una sola vez, con Docker).
-2. Copia el contenido del disco en una carpeta `PSP_DATA` y agrega el ejecutable **desencriptado** como
-   `PSP_DATA/PSP_GAME/SYSDIR/EBOOT_DECRYPTED.ELF`. PPSSPP lo genera con *Ajustes → Herramientas →
-   Herramientas de desarrollo → Volcar EBOOT.BIN desencriptado al iniciar*.
-3. `tools/restore_generated.sh` con tu ejecutable: comprueba que sea ULUS-10160 y prepara el código.
-4. `cmake --preset switch` y `cmake --build --preset switch`: crea `build/switch/vcsnx.nro`.
-5. `tools/prepare_sd.sh PSP_DATA <tu SD>`: deja todo en `sdmc:/switch/vcsnx/`.
-6. Ábrelo **manteniendo R** al abrir cualquier juego desde el menú HOME, para tener toda la memoria.
+- Una Nintendo Switch con homebrew (Atmosphère con hbmenu).
+- Un PC con Windows 10 u 11 de 64 bits, con internet la primera vez y unos 5 GB libres.
+- **El port de PC de GTA: Vice City Stories**
+  ([VCSNative](https://github.com/OverkillLabs3/vice-city-stories-recomp)) **armado con tu propia copia**:
+  VCSNX usa su misma carpeta `PSP_DATA`, con el ejecutable desencriptado
+  `PSP_GAME\SYSDIR\EBOOT_DECRYPTED.ELF` y `PSP_GAME\USRDIR`. Prepárala como explica ese port; si VCSNative
+  ya funciona en tu PC, la carpeta está lista.
 
-**Licencia:** el código es MIT; tu copia del juego y el logo "studios bAlo" no lo son.
+### Instalación paso a paso
 
-**Controles:** A/B/Y/X hacen lo de ✕/○/□/△, ZR/ZL son R/L a pie y aceleran y frenan en un vehículo,
-el stick derecho mueve la cámara, y en un vehículo L/R miran a los lados y R3 (o L + R) mira atrás.
-Los textos del juego muestran los botones de la Switch.
+1. **Baja** `VCSNX-Builder-0.1.0.zip` de [Releases](https://github.com/fsalamancar/VCSNX/releases/latest).
+   Trae todo: el programa y el `vcsnx.nro`.
+2. **Descomprímelo** en una carpeta sin acentos, por ejemplo `C:\VCSNX-Builder` (clic derecho → *Extraer
+   todo*).
+3. **Abre `VCSNX-Builder.exe`**: se abre la ventana *GTA VCS Compiler*. Si Windows dice *"Windows protegió
+   su PC"*, pulsa *Más información* → *Ejecutar de todas formas*.
+4. **1. Tu juego:** pulsa **Elegir** y elige tu carpeta `PSP_DATA`. Al momento sale
+   **✓ GTA Vice City Stories ULUS-10160 1.03**. Si sale un mensaje, el mensaje dice qué hacer.
+5. **2. Ícono (opcional):** cualquier PNG o JPG para el ícono en hbmenu.
+6. **3. SD de la Switch (opcional):** mete la SD de la Switch en el PC y elígela en la lista.
+7. **Pulsa "Crear vcs_game.so".** La primera vez baja el código recompilado y lo compila: unos
+   **20–60 minutos**, según el PC. Puedes cancelar; la próxima vez sigue donde quedó.
+8. **Listo.** Si elegiste la SD, ya está todo en ella. Si no, copia a `sdmc:/switch/vcsnx/` en la SD:
+   `salida\vcsnx.nro`, `salida\vcs_game.so`, `kit\VCSNative.ini` y tu carpeta `PSP_DATA`.
+9. **A jugar.** En la Switch, mantén **R** mientras abres cualquier juego desde el menú HOME: se abre
+   hbmenu con toda la memoria de la consola. Abre **VCSNX**.
+
+**Actualizaciones:** baja el `vcsnx.nro` nuevo de Releases y reemplázalo en la SD. `vcs_game.so` sigue
+sirviendo, salvo que VCSNX diga que hay que crearlo de nuevo; entonces baja el `VCSNX-Builder-<versión>.zip`
+de ese release, descomprímelo en tu carpeta del Builder (reemplazando los archivos) y pulsa *Crear* otra vez.
+El Builder viejo volvería a crear el `vcs_game.so` viejo.
+
+### Si algo falla
+
+| Qué ves | Qué hacer |
+|---|---|
+| *"Windows protegió su PC"* | *Más información* → *Ejecutar de todas formas*. |
+| *"Mueve la carpeta del programa a una ruta sin acentos…"* | Muévela, por ejemplo a `C:\VCSNX-Builder`. |
+| El antivirus bloquea el compilador (`toolchain\devkitA64\...`) | Permite la carpeta del programa y pulsa *Crear* otra vez: lo ya compilado se guarda. |
+| *"Esta copia no es GTA Vice City Stories ULUS-10160"* | Solo sirve la versión de EE. UU. 1.03. |
+| *"El ejecutable está cifrado"* | Prepara tu `PSP_DATA` como explica el port de PC (VCSNative): el ejecutable desencriptado va en `PSP_GAME\SYSDIR\EBOOT_DECRYPTED.ELF`. |
+| VCSNX dice que no hay memoria suficiente | Ábrelo manteniendo **R** sobre un juego, no desde el Álbum. |
+| Otra cosa | El detalle está en `salida\builder.log`. Abre un [issue](https://github.com/fsalamancar/VCSNX/issues) con él. |
+
+### Controles
+
+A/B/Y/X hacen lo de ✕/○/□/△, ZR/ZL son R/L a pie y aceleran y frenan en un vehículo, el stick derecho
+mueve la cámara, y en un vehículo L/R miran a los lados y R3 (o L + R) mira atrás. Los textos del juego
+muestran los botones de la Switch.
+
+### Legal
+
+Este proyecto no tiene relación con Take-Two Interactive, Rockstar Games, Sony ni Nintendo, ni cuenta con su
+aval. *Grand Theft Auto* y *Vice City Stories* son marcas de Take-Two Interactive; *PSP*, de Sony; *Nintendo
+Switch*, de Nintendo. Ni este repositorio ni sus releases traen archivos, código o ejecutables del juego: el
+código del juego se crea en tu PC con tu copia. No apoyamos la piratería: usa una copia que sea tuya. El
+código es MIT; el logo y el sonido de bAlo en `assets/splash/` y el banner en `assets/readme/` no lo son.

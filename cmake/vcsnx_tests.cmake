@@ -26,3 +26,27 @@ vcsnx_add_test(test_memory_usage tests/platform/test_memory_usage.cpp platform/s
 vcsnx_add_test(test_present_math tests/platform/test_present_math.cpp)
 vcsnx_add_test(test_gpu_backend_null tests/platform/test_gpu_backend_null.cpp platform/switch/ge_gpu_backend_null.cpp)
 vcsnx_add_test(test_runtime_paths tests/platform/test_runtime_paths.cpp)
+
+# The game module loader's pure part (platform/switch/elf_module) against a devkitA64 shared object.
+find_program(VCSNX_A64_GCC aarch64-none-elf-gcc HINTS /opt/devkitpro/devkitA64/bin)
+if(VCSNX_A64_GCC)
+    set(VCSNX_FIXTURE_MODULE "${CMAKE_BINARY_DIR}/fixture_module.so")
+    add_custom_command(OUTPUT "${VCSNX_FIXTURE_MODULE}"
+        COMMAND "${VCSNX_A64_GCC}" -O2 -fPIC -shared -nostdlib -Wl,-Bsymbolic
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/fixture_module.c" "${CMAKE_SOURCE_DIR}/platform/switch/module_eh_end.S"
+                -o "${VCSNX_FIXTURE_MODULE}"
+        DEPENDS "${CMAKE_SOURCE_DIR}/tests/fixtures/fixture_module.c" "${CMAKE_SOURCE_DIR}/platform/switch/module_eh_end.S"
+        VERBATIM)
+    set(VCSNX_FIXTURE_MODULE_UNTERMINATED "${CMAKE_BINARY_DIR}/fixture_module_unterminated.so")
+    add_custom_command(OUTPUT "${VCSNX_FIXTURE_MODULE_UNTERMINATED}"
+        COMMAND "${VCSNX_A64_GCC}" -O2 -fPIC -shared -nostdlib -Wl,-Bsymbolic
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/fixture_module.c" -o "${VCSNX_FIXTURE_MODULE_UNTERMINATED}"
+        DEPENDS "${CMAKE_SOURCE_DIR}/tests/fixtures/fixture_module.c" VERBATIM)
+    add_custom_target(fixture_module DEPENDS "${VCSNX_FIXTURE_MODULE}" "${VCSNX_FIXTURE_MODULE_UNTERMINATED}")
+    vcsnx_add_test(test_elf_module tests/platform/test_elf_module.cpp platform/switch/elf_module.cpp)
+    add_dependencies(test_elf_module fixture_module)
+    target_compile_definitions(test_elf_module PRIVATE VCSNX_FIXTURE_MODULE="${VCSNX_FIXTURE_MODULE}"
+        VCSNX_FIXTURE_MODULE_UNTERMINATED="${VCSNX_FIXTURE_MODULE_UNTERMINATED}")
+else()
+    message(STATUS "VCSNX: no devkitA64, test_elf_module skipped")
+endif()

@@ -44,4 +44,9 @@ struct StartupFacts {
 // The CPU-only build keeps 3 raster threads.
 [[nodiscard]] std::vector<std::pair<std::string, std::string>> default_environment(bool vulkan_backend);
 
+// The game module (vcs_game.so, spec §2): missing, made for another runtime, or not loadable.
+[[nodiscard]] std::string module_missing_message();
+[[nodiscard]] std::string module_mismatch_message();
+[[nodiscard]] std::string module_load_message(std::string_view error);
+
 } // namespace vcsnx

@@ -101,5 +101,16 @@ int main() {
              require(pairs[0].first == "PSPRECOMP_FRAME_DUMP_START" && pairs[0].second == "600", "first pair");
              require(pairs[1].first == "A" && pairs[1].second == "b=c", "value keeps later '='");
          }},
+        {"the game module messages are ASCII and send the player to the Builder", [] {
+             const std::string messages[] = {vcsnx::module_missing_message(), vcsnx::module_mismatch_message(),
+                                             vcsnx::module_load_message("missing import: memcpy")};
+             for (const std::string &message : messages) {
+                 require(message.find("VCSNX Builder") != std::string::npos, "names the Builder");
+                 for (const char c : message) require(static_cast<unsigned char>(c) < 128, "ASCII only");
+             }
+             require(messages[0].find("vcs_game.so") != std::string::npos, "says which file is missing");
+             require(messages[2].find("missing import: memcpy") != std::string::npos, "includes the loader's reason");
+             require(vcsnx::module_load_message("caf\xc3\xa9").find("caf??") != std::string::npos, "non-ASCII replaced");
+         }},
     });
 }

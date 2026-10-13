@@ -37,3 +37,9 @@ __pycache__/
 
 # User-supplied art (e.g. the cover the .nro icon is cut from): local only, never committed
 /local/
+
+# VCSNX Builder: .NET outputs, the release zip, and the game module (built from the player's copy: never commit)
+builder/**/bin/
+builder/**/obj/
+/dist/
+vcs_game.so

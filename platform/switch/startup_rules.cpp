@@ -84,4 +84,26 @@ std::vector<std::pair<std::string, std::string>> default_environment(bool vulkan
     return env;
 }
 
+std::string module_missing_message() {
+    return "The game module is missing: sdmc:/switch/vcsnx/vcs_game.so\n"
+           "Create it on your PC with VCSNX Builder, from your own copy of the\n"
+           "game, and copy it next to vcsnx.nro.\n\n"
+           "Press + to exit.";
+}
+
+std::string module_mismatch_message() {
+    return "vcs_game.so was made for another version of vcsnx.nro.\n"
+           "Create it again with the VCSNX Builder of this release.\n\n"
+           "Press + to exit.";
+}
+
+std::string module_load_message(std::string_view error) {
+    std::string ascii(error);
+    for (char &c : ascii)
+        if (static_cast<unsigned char>(c) >= 128) c = '?';
+    return "Could not load vcs_game.so:\n" + ascii +
+           "\nCreate it again with VCSNX Builder.\n\n"
+           "Press + to exit.";
+}
+
 } // namespace vcsnx

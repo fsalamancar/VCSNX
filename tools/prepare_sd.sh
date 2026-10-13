@@ -26,5 +26,7 @@ mkdir -p "$DEST"
 rsync -a --delete --exclude='._*' --exclude='.DS_Store' "$DATA/" "$DEST/PSP_DATA/"
 cp "$ROOT/config/VCSNative.ini" "$DEST/VCSNative.ini"
 cp "$NRO" "$DEST/vcsnx.nro"
+MODULE="$(find "$ROOT/build/switch" -maxdepth 1 -name vcs_game.so -print -quit)"
+[ -z "$MODULE" ] || cp "$MODULE" "$DEST/vcs_game.so"   # the split build (VCSNX_GAME_MODULE=ON)
 dot_clean -m "$DEST" 2>/dev/null || true
 echo "SD ready: $DEST ($(du -sh "$DEST" | cut -f1))"

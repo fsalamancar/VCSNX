@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <!-- The published .exe names its .pdb files: map the build machine's folder to /_/ so it stays out of the
+         release (tools/package_builder.py refuses any file that carries it). -->
+    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)'))=/_/</PathMap>
+  </PropertyGroup>
+</Project>
