@@ -19,8 +19,10 @@ vcsnx_add_test(test_ge_filters tests/platform/test_ge_filters.cpp platform/switc
 vcsnx_add_test(test_boot_splash tests/platform/test_boot_splash.cpp platform/switch/boot_splash.cpp)
 vcsnx_add_test(test_pad_mapping tests/platform/test_pad_mapping.cpp platform/switch/pad_mapping.cpp)
 vcsnx_add_test(test_perf_log tests/platform/test_perf_log.cpp platform/switch/perf_log.cpp)
+vcsnx_add_test(test_log_files tests/platform/test_log_files.cpp platform/switch/log_files.cpp)
+vcsnx_add_test(test_memory_watch tests/platform/test_memory_watch.cpp platform/switch/memory_watch.cpp)
 vcsnx_add_test(test_stderr_tee tests/platform/test_stderr_tee.cpp platform/switch/stderr_tee.cpp
-    platform/switch/perf_log.cpp platform/switch/memory_usage.cpp)
+    platform/switch/perf_log.cpp platform/switch/memory_usage.cpp platform/switch/log_files.cpp)
 vcsnx_add_test(test_startup_rules tests/platform/test_startup_rules.cpp platform/switch/startup_rules.cpp)
 vcsnx_add_test(test_memory_usage tests/platform/test_memory_usage.cpp platform/switch/memory_usage.cpp)
 vcsnx_add_test(test_present_math tests/platform/test_present_math.cpp)

@@ -19,6 +19,12 @@ struct FrameTimeSample {
 // Returns nullopt for any line that is not "[frame-time] ..." or has no valid frame_us.
 [[nodiscard]] std::optional<FrameTimeSample> parse_frame_time_line(std::string_view line);
 
+// The averages of the last finished window, for LoadingWatch.
+struct WindowStats {
+    double fps_avg{};
+    double ge_ms_avg{};
+};
+
 // Accumulates frames until window_us of frame time has passed, then returns one summary line:
 // "t=<s>s frames=N fps_avg fps_min guest_ms_avg/max ge_ms_avg/max present_ms_avg/max mem_peak_mb".
 class PerfWindow {
@@ -27,6 +33,7 @@ public:
 
     [[nodiscard]] std::optional<std::string> add(const FrameTimeSample &sample,
                                                  std::uint64_t memory_in_use_mb);
+    [[nodiscard]] WindowStats last_window() const noexcept { return last_; }
 
 private:
     std::uint64_t window_us_;
@@ -37,6 +44,20 @@ private:
     std::uint64_t sum_ge_us_{}, max_ge_us_{};
     std::uint64_t sum_present_us_{}, max_present_us_{};
     std::uint64_t memory_peak_mb_{};
+    WindowStats last_{};
+};
+
+// Backlog bug 1: some loads never end. A loading screen in perf.log is ~60 fps with almost no GE work;
+// three such windows in a row (30 s) ask once for a dump of the game's scheduler, at most three times
+// per session, and again only after the game has moved on.
+class LoadingWatch {
+public:
+    [[nodiscard]] bool observe(const WindowStats &window) noexcept;
+
+private:
+    int consecutive_{};
+    int reports_{};
+    bool reported_{};
 };
 
 } // namespace vcsnx

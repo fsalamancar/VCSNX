@@ -47,5 +47,36 @@ int main() {
              require(second && second->rfind("t=20s frames=250 ", 0) == 0, "second window: " + second.value_or("none"));
              require(second->find("mem_peak_mb=300") != std::string::npos, "peak resets per window");
          }},
+        {"the last window's averages are kept for the loading watch", [] {
+             PerfWindow window;
+             for (int i = 0; i < 250; ++i) (void)window.add(frame(40000u), 500u);
+             const WindowStats last = window.last_window();
+             require(last.fps_avg > 24.9 && last.fps_avg < 25.1, "fps_avg");
+             require(last.ge_ms_avg > 9.9 && last.ge_ms_avg < 10.1, "ge_ms_avg");
+         }},
+        {"a loading screen that lasts three windows asks for one scheduler dump", [] {
+             LoadingWatch watch;
+             const WindowStats loading{59.2, 0.6};
+             require(!watch.observe(loading) && !watch.observe(loading), "not before 30 s");
+             require(watch.observe(loading), "at 30 s");
+             require(!watch.observe(loading) && !watch.observe(loading), "once per loading screen");
+         }},
+        {"gameplay and a short loading screen never ask", [] {
+             LoadingWatch watch;
+             const WindowStats gameplay{30.5, 12.4}, loading{59.1, 0.5};
+             require(!watch.observe(gameplay) && !watch.observe(loading) && !watch.observe(loading), "two windows");
+             require(!watch.observe(gameplay) && !watch.observe(loading), "the count restarts after gameplay");
+         }},
+        {"it asks again after the game moves on, three times per session at most", [] {
+             LoadingWatch watch;
+             const WindowStats gameplay{30.0, 10.0}, loading{59.0, 0.5};
+             int dumps = 0;
+             for (int episode = 0; episode < 5; ++episode) {
+                 for (int i = 0; i < 4; ++i) dumps += watch.observe(loading) ? 1 : 0;
+                 (void)watch.observe(gameplay);
+             }
+             require(dumps == 3, "dumps=" + std::to_string(dumps));
+         }},
     });
 }
+

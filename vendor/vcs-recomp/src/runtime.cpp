@@ -1152,6 +1152,101 @@ void Runtime::invoke_native_fast_path(std::uint32_t address, AllegrexContext &ct
     ctx.gpr[0] = 0u;
 }
 
+// Diagnostics for loads that never end (VCSNX backlog bug 1): after trace_next_imports(n), the next n
+// imports are written to stderr with their arguments, return address and result. Off (one compare per
+// import) until a host profile asks; only the guest thread calls imports, so a plain counter is enough.
+namespace {
+int import_trace_remaining = 0;
+
+struct ImportTrace {
+    std::uint32_t a0{}, a1{}, a2{}, a3{}, ra{};
+};
+} // namespace
+
+void trace_next_imports(int count) { import_trace_remaining = count; }
+
+// The last kHistory calls to the imports that hand work between threads (thread manager, file and UMD
+// I/O), kept in memory and written by dump_import_history() with the stall dump, so a stall shows how it
+// began. The calls a loading or game loop makes every frame are left out so they cannot flood it.
+namespace {
+constexpr std::size_t kHistory = 8192;
+struct HistoryEntry {
+    std::uint64_t sequence{};
+    std::int32_t thread{};
+    std::uint8_t library{}; // 0 none, 1 ThreadManForUser, 2 IoFileMgrForUser, 3 sceUmdUser
+    std::uint32_t nid{}, a0{}, a1{}, a2{}, a3{}, ra{}, v0{};
+};
+std::array<HistoryEntry, kHistory> history{};
+std::uint64_t history_count = 0;
+std::int32_t (*history_thread_uid)() = nullptr;
+
+constexpr const char *kHistoryLibraries[] = {"", "ThreadManForUser", "IoFileMgrForUser", "sceUmdUser"};
+
+std::uint8_t history_library(std::string_view library, std::uint32_t nid, std::uint32_t a1) {
+    if (library == "ThreadManForUser") {
+        switch (nid) {
+        case 0xBA6B92E2u: // sceKernelSysClock2USec
+        case 0x4E3A1105u: // sceKernelWaitSema (the sound mixer, every buffer)
+        case 0x3F53E640u: // sceKernelSignalSema
+        case 0x68DA9E36u: // sceKernelDelayThreadCB
+        case 0xCEADEB47u: // sceKernelDelayThread
+        case 0x30FD48F0u: // sceKernelPollEventFlag (polling loops)
+        case 0x82BC5777u: // sceKernelGetSystemTimeWide
+        case 0xDB738F35u: // sceKernelGetSystemTime
+        case 0xE1619D7Cu: // sceKernelSysClock2USecWide
+        case 0x369ED59Du: // sceKernelGetSystemTimeLow
+            return 0u;
+        default:
+            return 1u;
+        }
+    }
+    if (library == "IoFileMgrForUser") return nid == 0x54F5FB11u && a1 == 0x02425823u ? 0u : 2u; // devctl: Memory Stick ready?
+    if (library == "sceUmdUser") return nid == 0x6B4A146Cu /* sceUmdGetDriveStat, polled */ ? 0u : 3u;
+    return 0u;
+}
+
+std::int32_t history_thread() { return history_thread_uid != nullptr ? history_thread_uid() : -1; }
+
+// `thread` is taken before the call: a wait or an I/O hand-off switches threads inside it.
+void remember_import(std::uint8_t library, std::uint32_t nid, std::int32_t thread, const ImportTrace &before,
+                     const AllegrexContext &ctx) {
+    HistoryEntry &entry = history[history_count % kHistory];
+    entry = HistoryEntry{history_count, thread, library, nid, before.a0, before.a1, before.a2, before.a3, before.ra, ctx.gpr[2]};
+    ++history_count;
+}
+} // namespace
+
+void set_import_history_thread_source(std::int32_t (*current_thread_uid)()) { history_thread_uid = current_thread_uid; }
+
+// The whole history as text, so the caller can write it to the SD in one go (line by line through stderr
+// took minutes and was cut short when the player closed the game).
+std::string import_history_text(const NidRegistry &nids) {
+    const std::uint64_t first = history_count > kHistory ? history_count - kHistory : 0u;
+    std::ostringstream text;
+    text << "[import-history] entries=" << (history_count - first) << " of " << history_count << "\n";
+    for (std::uint64_t index = first; index < history_count; ++index) {
+        const HistoryEntry &entry = history[index % kHistory];
+        const std::string library = kHistoryLibraries[entry.library];
+        text << "[import-history] #" << entry.sequence << " thread=" << entry.thread << " " << library << ":"
+             << hex32(entry.nid) << " " << nids.resolve(library, entry.nid).value_or("?") << " a0=" << hex32(entry.a0)
+             << " a1=" << hex32(entry.a1) << " a2=" << hex32(entry.a2) << " a3=" << hex32(entry.a3)
+             << " ra=" << hex32(entry.ra) << " -> v0=" << hex32(entry.v0) << "\n";
+    }
+    return text.str();
+}
+
+namespace {
+void write_import_trace(const NidRegistry &nids, std::string_view library, std::uint32_t nid,
+                        const ImportTrace &before, const AllegrexContext &ctx) {
+    --import_trace_remaining;
+    const std::string library_name(library);
+    std::cerr << "[import-trace] " << library_name << ":" << hex32(nid) << " "
+              << nids.resolve(library_name, nid).value_or("?") << " a0=" << hex32(before.a0)
+              << " a1=" << hex32(before.a1) << " a2=" << hex32(before.a2) << " a3=" << hex32(before.a3)
+              << " ra=" << hex32(before.ra) << " -> v0=" << hex32(ctx.gpr[2]) << "\n";
+}
+} // namespace
+
 void Runtime::invoke_import_cached(std::uint32_t slot, std::string_view library,
                                    std::uint32_t nid, AllegrexContext &ctx) {
     if (hle_histogram_enabled_) ++hle_histogram_[hle_key(library, nid)];
@@ -1175,7 +1270,13 @@ void Runtime::invoke_import_cached(std::uint32_t slot, std::string_view library,
     const RuntimeExecutionContextToken caller_context = capture_runtime_execution_context();
     const std::uint32_t import_pc = ctx.pc;
     const std::uint32_t return_address = ctx.gpr[31];
+    const bool traced = import_trace_remaining > 0;
+    const std::uint8_t remembered = history_library(library, nid, ctx.gpr[5]);
+    const std::int32_t caller_thread = remembered != 0u ? history_thread() : -1;
+    const ImportTrace before{ctx.gpr[4], ctx.gpr[5], ctx.gpr[6], ctx.gpr[7], ctx.gpr[31]};
     (*bound)(*this, ctx);
+    if (traced) write_import_trace(nids_, library, nid, before, ctx);
+    if (remembered != 0u) remember_import(remembered, nid, caller_thread, before, ctx);
     if (!stopped_ && g_post_import_hook != nullptr) {
         // The generated import stub only advances PC to the return address after this
         // function returns. The hook may divert this thread into a guest callback and
@@ -1207,7 +1308,13 @@ void Runtime::invoke_import(std::string_view library, std::uint32_t nid, Allegre
     const RuntimeExecutionContextToken caller_context = capture_runtime_execution_context();
     const std::uint32_t import_pc = ctx.pc;
     const std::uint32_t return_address = ctx.gpr[31];
+    const bool traced = import_trace_remaining > 0;
+    const std::uint8_t remembered = history_library(library, nid, ctx.gpr[5]);
+    const std::int32_t caller_thread = remembered != 0u ? history_thread() : -1;
+    const ImportTrace before{ctx.gpr[4], ctx.gpr[5], ctx.gpr[6], ctx.gpr[7], ctx.gpr[31]};
     function_it->second(*this, ctx);
+    if (traced) write_import_trace(nids_, library, nid, before, ctx);
+    if (remembered != 0u) remember_import(remembered, nid, caller_thread, before, ctx);
     if (!stopped_ && g_post_import_hook != nullptr) {
         if (runtime_execution_context_matches(caller_context) && ctx.pc == import_pc)
             ctx.pc = return_address;  // see invoke_import_cached()

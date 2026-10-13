@@ -60,6 +60,7 @@ std::optional<std::string> PerfWindow::add(const FrameTimeSample &sample, std::u
     const auto ms = [](std::uint64_t us) { return static_cast<double>(us) / 1000.0; };
     const double fps_average = frames * 1'000'000.0 / static_cast<double>(sum_frame_us_);
     const double fps_minimum = max_frame_us_ == 0u ? 0.0 : 1'000'000.0 / static_cast<double>(max_frame_us_);
+    last_ = WindowStats{fps_average, average_ms(sum_ge_us_)};
 
     char text[320];
     std::snprintf(text, sizeof(text),
@@ -78,6 +79,19 @@ std::optional<std::string> PerfWindow::add(const FrameTimeSample &sample, std::u
     sum_present_us_ = max_present_us_ = 0u;
     memory_peak_mb_ = 0u;
     return std::string(text);
+}
+
+bool LoadingWatch::observe(const WindowStats &window) noexcept {
+    const bool loading = window.fps_avg >= 50.0 && window.ge_ms_avg < 1.5;
+    if (!loading) {
+        consecutive_ = 0;
+        reported_ = false;
+        return false;
+    }
+    if (++consecutive_ < 3 || reported_ || reports_ >= 3) return false;
+    reported_ = true;
+    ++reports_;
+    return true;
 }
 
 } // namespace vcsnx

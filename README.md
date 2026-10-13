@@ -32,9 +32,13 @@
 
 ## Install, step by step
 
-1. **Download** `VCSNX-Builder-0.1.0.zip` from [Releases](https://github.com/fsalamancar/VCSNX/releases/latest).
-   It has everything: the program and `vcsnx.nro`.
-2. **Unzip it** to a folder without accents, for example `C:\VCSNX-Builder` (right-click → *Extract All*).
+1. **Download two files:** `VCSNX-Builder-0.1.0.zip` from
+   [release v0.1.0](https://github.com/fsalamancar/VCSNX/releases/tag/v0.1.0) (the program) and `vcsnx.nro`
+   from the [latest release](https://github.com/fsalamancar/VCSNX/releases/latest) (the runtime, with the
+   latest fixes).
+2. **Unzip the Builder** to a folder without accents, for example `C:\VCSNX-Builder` (right-click → *Extract
+   All*). Then **copy the `vcsnx.nro` you downloaded into its `kit` folder**, replacing the one there: the
+   Builder uses that file for your icon and your SD card.
 3. **Open `VCSNX-Builder.exe`**: the *GTA VCS Compiler* window opens. If Windows says *"Windows protected
    your PC"*, click *More info* → *Run anyway*.
 4. **1. Your game:** click **Choose** and pick your `PSP_DATA` folder. After a moment it shows
@@ -203,10 +207,13 @@ del juego se recompila para la Switch, en tu PC, con tu propia copia.</p>
 
 ### Instalación paso a paso
 
-1. **Baja** `VCSNX-Builder-0.1.0.zip` de [Releases](https://github.com/fsalamancar/VCSNX/releases/latest).
-   Trae todo: el programa y el `vcsnx.nro`.
-2. **Descomprímelo** en una carpeta sin acentos, por ejemplo `C:\VCSNX-Builder` (clic derecho → *Extraer
-   todo*).
+1. **Baja dos archivos:** `VCSNX-Builder-0.1.0.zip` del
+   [release v0.1.0](https://github.com/fsalamancar/VCSNX/releases/tag/v0.1.0) (el programa) y `vcsnx.nro` del
+   [último release](https://github.com/fsalamancar/VCSNX/releases/latest) (el runtime, con los últimos
+   arreglos).
+2. **Descomprime el Builder** en una carpeta sin acentos, por ejemplo `C:\VCSNX-Builder` (clic derecho →
+   *Extraer todo*). Luego **copia el `vcsnx.nro` que bajaste dentro de su carpeta `kit`**, reemplazando el que
+   está: el Builder usa ese archivo para tu ícono y tu SD.
 3. **Abre `VCSNX-Builder.exe`**: se abre la ventana *GTA VCS Compiler*. Si Windows dice *"Windows protegió
    su PC"*, pulsa *Más información* → *Ejecutar de todas formas*.
 4. **1. Tu juego:** pulsa **Elegir** y elige tu carpeta `PSP_DATA`. Al momento sale

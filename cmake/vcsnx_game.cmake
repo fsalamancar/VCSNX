@@ -13,6 +13,8 @@ set(VCSNX_PLATFORM_SOURCES
     "${VCSNX_PLATFORM_DIR}/hw_verify.cpp"
     "${VCSNX_PLATFORM_DIR}/memory_usage.cpp"
     "${VCSNX_PLATFORM_DIR}/pad_mapping.cpp"
+    "${VCSNX_PLATFORM_DIR}/log_files.cpp"
+    "${VCSNX_PLATFORM_DIR}/memory_watch.cpp"
     "${VCSNX_PLATFORM_DIR}/perf_log.cpp"
     "${VCSNX_PLATFORM_DIR}/platform.cpp"
     "${VCSNX_PLATFORM_DIR}/present_phases.cpp"
@@ -105,6 +107,13 @@ if(NOT VCSNX_TARGET_SWITCH)
     vcsnx_configure_host(vcs_profile_tests)
     vcsnx_configure_gpu_backend(vcs_profile_tests)
     add_test(NAME vcs_profile_tests COMMAND vcs_profile_tests)
+
+    # Backlog bugs 1 and 3: thread stacks freed by sceKernelExitDeleteThread (the HLE needs the whole host).
+    add_executable(test_thread_stacks "${CMAKE_SOURCE_DIR}/tests/platform/test_thread_stacks.cpp" ${VCSNX_HOST_SOURCES})
+    vcsnx_configure_host(test_thread_stacks)
+    vcsnx_configure_gpu_backend(test_thread_stacks)
+    target_include_directories(test_thread_stacks PRIVATE "${CMAKE_SOURCE_DIR}/tests")
+    add_test(NAME test_thread_stacks COMMAND test_thread_stacks)
 
     add_executable(vcs_config_tests "${VCSNX_PROFILE_DIR}/tests/vcs_config_tests.cpp"
         "${VCSNX_PROFILE_DIR}/host/vcs_config.cpp" "${VCSNX_PROFILE_DIR}/host/vcs_camera_input.cpp"

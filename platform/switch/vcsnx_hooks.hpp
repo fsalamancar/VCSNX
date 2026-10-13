@@ -4,10 +4,18 @@
 
 #include <cstddef>
 #include <functional>
+#include <string>
 
 #include <pthread.h>
 
 namespace vcsnx {
+
+// Backlog bug 1: perf.log's LoadingWatch saw 30 s of loading screen (stderr_tee.cpp asks); the guest thread
+// takes the request at its next vblank and dumps the game's scheduler (vcs_profile.cpp).
+void request_scheduler_dump() noexcept;
+[[nodiscard]] bool take_scheduler_dump_request() noexcept;
+// Appends `text` to vcsnx_stall.log in the data folder in one write (the dump's long import history).
+void write_stall_report(const std::string &text) noexcept;
 
 enum class ThreadRole {
     Guest,        // the PSP interpreter thread started by main.cpp

@@ -600,7 +600,18 @@ int main(int argc, char **argv) {
         using GuestWorker = std::thread;
 #endif
         GuestWorker worker([&]() {
+#if defined(VCSNX)
+            // The catch at the end of main() runs on this thread's parent and never sees the worker's
+            // exceptions: without this one, an error in the game ended in std::terminate with no message.
+            try {
+                result = run_and_report();
+            } catch (const std::exception &e) {
+                std::cerr << "VCSNative error: " << e.what() << "\n";
+                result = 1;
+            }
+#else
             result = run_and_report();
+#endif
             worker_done.store(true, std::memory_order_release);
         });
         while (!worker_done.load(std::memory_order_acquire)) {

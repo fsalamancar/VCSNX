@@ -57,6 +57,11 @@
 namespace psprecomp {
 using RuntimePostImportHook = void (*)(Runtime &, AllegrexContext &);
 void set_runtime_post_import_hook(RuntimePostImportHook hook) noexcept;
+#if defined(VCSNX)
+void trace_next_imports(int count); // runtime.cpp: logs the next `count` imports ([import-trace])
+void set_import_history_thread_source(std::int32_t (*current_thread_uid)()); // runtime.cpp
+std::string import_history_text(const NidRegistry &nids);                   // runtime.cpp ([import-history])
+#endif
 }
 
 namespace vcs {
@@ -2315,6 +2320,21 @@ struct SavedataUtilityState {
 };
 
 SavedataUtilityState savedata_utility{};
+
+#if defined(VCSNX)
+// VCSNX (backlog bug 3, the screen stays black when saving): every savedata utility step and every status
+// change the game sees, capped so a polling loop cannot fill the SD.
+constexpr bool kSavedataTrace = true;
+void trace_savedata(const char *step, std::uint32_t value, std::uint32_t result) {
+    static int lines = 0;
+    if (lines >= 400) return;
+    ++lines;
+    std::cerr << "[savedata] " << step << " value=" << psprecomp::hex32(value) << " result=" << psprecomp::hex32(result)
+              << " status=" << static_cast<int>(savedata_utility.status) << "\n";
+}
+#else
+constexpr bool kSavedataTrace = false;
+#endif
 
 constexpr std::uint32_t kUtilityCommonResultOffset = 0x1Cu;
 constexpr std::uint32_t kSavedataModeOffset = 0x30u;
@@ -5592,6 +5612,78 @@ void dump_event_stall_state(const EventFlagRecord &flag, std::int32_t flag_uid,
     }
 }
 
+#if defined(VCSNX)
+// VCSNX (backlog bug 1, loads that never end): the same scheduler tables as an event-flag stall, asked for
+// by perf.log's LoadingWatch after 30 s of loading screen. Every event flag and semaphore with waiters is
+// listed, and nothing is stopped.
+void dump_loading_stall_state(psprecomp::Runtime &rt) {
+    std::cerr << "[loading-stall] vblank=" << display_vblank_index
+              << " virtual_time_us=" << virtual_time_us
+              << " dispatch_pc=" << psprecomp::hex32(psprecomp::runtime_dispatch_pc())
+              << " current_uid=" << thread_table.current_uid
+              << " ready=" << thread_table.continuations.size()
+              << " deferred_io=" << deferred_io_resumes.size() << "\n";
+    std::vector<std::int32_t> uids;
+    uids.reserve(thread_table.threads.size());
+    for (const auto &[uid, unused] : thread_table.threads) {
+        (void)unused;
+        uids.push_back(uid);
+    }
+    std::sort(uids.begin(), uids.end());
+    for (const std::int32_t uid : uids) {
+        const ThreadRecord &thread = thread_table.threads.at(uid);
+        std::cerr << "[loading-stall-thread] uid=" << uid << " name=\"" << thread.name << "\""
+                  << " priority=" << thread.priority << " state=" << thread_state_name(thread.state)
+                  << " external=" << (thread.externally_suspended ? 1 : 0)
+                  << " pc=" << psprecomp::hex32(thread.suspended_context.pc)
+                  << " ra=" << psprecomp::hex32(thread.suspended_context.gpr[31])
+                  << " delay_until=" << thread.delay_until_us << " wakeups=" << thread.wakeup_count << "\n";
+    }
+    for (const ThreadContinuation &ready : thread_table.continuations)
+        std::cerr << "[loading-stall-ready] uid=" << ready.uid << " pc=" << psprecomp::hex32(ready.context.pc)
+                  << " ra=" << psprecomp::hex32(ready.context.gpr[31]) << "\n";
+    for (const auto &[worker_uid, barrier] : deferred_io_resumes)
+        std::cerr << "[loading-stall-io] worker=" << worker_uid << " handoff_uid=" << barrier.handoff_uid
+                  << " handoff_pc=" << psprecomp::hex32(barrier.handoff_pc)
+                  << " release_pc=" << psprecomp::hex32(barrier.release_pc)
+                  << " observed=" << barrier.observed_dispatches << "\n";
+    for (const auto &[uid, flag] : event_flag_table.flags) {
+        if (flag.waiters.empty()) continue;
+        std::cerr << "[loading-stall-flag] uid=" << uid << " name=\"" << flag.name << "\""
+                  << " pattern=" << psprecomp::hex32(flag.current_pattern) << " waiters=" << flag.waiters.size() << "\n";
+        for (const EventFlagWaiter &waiter : flag.waiters)
+            std::cerr << "[loading-stall-flag-waiter] flag_uid=" << uid << " thread_uid=" << waiter.uid
+                      << " requested=" << psprecomp::hex32(waiter.requested) << " mode=" << psprecomp::hex32(waiter.mode)
+                      << " pc=" << psprecomp::hex32(waiter.context.pc)
+                      << " ra=" << psprecomp::hex32(waiter.context.gpr[31]) << "\n";
+    }
+    for (const auto &[uid, semaphore] : semaphore_table.semaphores) {
+        if (semaphore.waiters.empty()) continue;
+        std::cerr << "[loading-stall-sema] uid=" << uid << " name=\"" << semaphore.name << "\""
+                  << " count=" << semaphore.count << " maximum=" << semaphore.maximum
+                  << " waiters=" << semaphore.waiters.size() << "\n";
+        for (const SemaphoreWaiter &waiter : semaphore.waiters)
+            std::cerr << "[loading-stall-sema-waiter] sema_uid=" << uid << " thread_uid=" << waiter.uid
+                      << " requested=" << waiter.requested << " pc=" << psprecomp::hex32(waiter.context.pc)
+                      << " ra=" << psprecomp::hex32(waiter.context.gpr[31]) << "\n";
+    }
+    const std::uint32_t parameter = savedata_utility.parameter_address;
+    std::cerr << "[loading-stall-savedata] status=" << static_cast<int>(savedata_utility.status)
+              << " parameter=" << psprecomp::hex32(parameter) << " complete=" << (savedata_utility.operation_complete ? 1 : 0);
+    if (parameter != 0u && rt.memory().contains(parameter + kSavedataModeOffset, 4u))
+        std::cerr << " mode=" << rt.memory().load32(parameter + kSavedataModeOffset);
+    std::cerr << "\n";
+    rt.report_hle_histogram(25u); // only with PSPRECOMP_HLE_HISTOGRAM=1 in vcsnx_env.txt
+    for (const auto &[uid, flag] : event_flag_table.flags)
+        std::cerr << "[loading-stall-every-flag] uid=" << psprecomp::hex32(static_cast<std::uint32_t>(uid))
+                  << " name=\"" << flag.name << "\" pattern=" << psprecomp::hex32(flag.current_pattern)
+                  << " waiters=" << flag.waiters.size() << "\n";
+    // How it began: the hand-offs between threads before the stall, in vcsnx_stall.log (one write).
+    vcsnx::write_stall_report(psprecomp::import_history_text(rt.nids()));
+    psprecomp::trace_next_imports(300);        // what the waiting loop asks the system, and what it gets back
+}
+#endif
+
 bool event_flag_matches(const EventFlagRecord &flag, std::uint32_t requested, std::uint32_t mode) {
     if ((mode & 1u) != 0u) return (flag.current_pattern & requested) != 0u;
     return (flag.current_pattern & requested) == requested;
@@ -5603,6 +5695,10 @@ void consume_event_flag(EventFlagRecord &flag, std::uint32_t requested, std::uin
 }
 
 void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start) {
+#if defined(VCSNX)
+    // The import history (runtime.cpp) records which PSP thread made each hand-off call.
+    psprecomp::set_import_history_thread_source([]() -> std::int32_t { return thread_table.current_uid; });
+#endif
     install_native_fast_paths(runtime);
     if (configured_game_frame_rate() > 30u) {
         runtime.register_function(kGuestFrameLimiterBranch,
@@ -5916,7 +6012,19 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
 
     runtime.register_hle("ThreadManForUser", 0x809CE29Bu,
         [](psprecomp::Runtime &rt, psprecomp::AllegrexContext &ctx) {
+            const std::int32_t exiting_uid = thread_table.current_uid;
             complete_current_thread(rt, ctx);
+            // Exit *and delete*: once the thread is off the CPU its stack goes back to the free list and its
+            // record goes away, as sceKernelDeleteThread does. Before, every worker that ended this way (the
+            // "sfx bank load thread" runs once per sound bank) kept its stack until sceKernelCreateThread
+            // failed with no memory and the game waited forever on a black or loading screen.
+            if (thread_table.current_uid != exiting_uid) {
+                if (const auto found = thread_table.threads.find(exiting_uid);
+                    found != thread_table.threads.end() && found->second.state == ThreadState::Completed) {
+                    release_thread_stack(found->second);
+                    thread_table.threads.erase(found);
+                }
+            }
         });
 
     runtime.register_hle("ThreadManForUser", 0x383F7BCCu,
@@ -7321,6 +7429,11 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
                            << " ge_calls=" << frame_time_stats.ge_calls
                            << " fps=" << (frame_us > 0 ? 1000000 / frame_us : 0) << "\n";
                 write_diag_line(frame_line);
+#if defined(VCSNX)
+                // This line just fed perf.log's LoadingWatch on this (the guest) thread; dump here, outside the
+                // stderr tee's lock.
+                if (vcsnx::take_scheduler_dump_request()) dump_loading_stall_state(rt);
+#endif
                 // Splits ge_us into the per-fragment pixel loop and everything
                 // else, which is per-triangle geometry.  Says directly which of
                 // the two a heavy frame is actually spent on.
@@ -7678,6 +7791,9 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
         [](psprecomp::Runtime &rt, psprecomp::AllegrexContext &ctx) {
             const std::uint32_t parameter = ctx.gpr[4];
             if (savedata_utility.status != UtilityStatus::None) {
+#if defined(VCSNX)
+                trace_savedata("init-busy", parameter, 0x80110001u);
+#endif
                 ctx.set_gpr(2, 0x80110001u);
                 return;
             }
@@ -7692,7 +7808,7 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
             }
             savedata_utility = SavedataUtilityState{UtilityStatus::Init, parameter, false};
             rt.memory().store32(parameter + kUtilityCommonResultOffset, 0u);
-            if (VCS_ENV("PSPRECOMP_TRACE") != nullptr) {
+            if (kSavedataTrace || VCS_ENV("PSPRECOMP_TRACE") != nullptr) {
                 std::cerr << "[hle] savedata init mode=" << rt.memory().load32(parameter + kSavedataModeOffset)
                           << " game=" << read_fixed_string(rt.memory(), parameter + kSavedataGameNameOffset, 13u)
                           << " save=" << read_fixed_string(rt.memory(), parameter + kSavedataSaveNameOffset, 20u)
@@ -7704,6 +7820,9 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
     runtime.register_hle("sceUtility", 0xD4B95FFBu,
         [](psprecomp::Runtime &rt, psprecomp::AllegrexContext &ctx) {
             if (savedata_utility.status == UtilityStatus::None || savedata_utility.status == UtilityStatus::Finished) {
+#if defined(VCSNX)
+                trace_savedata("update-busy", 0u, 0x80110001u);
+#endif
                 ctx.set_gpr(2, 0x80110001u);
                 return;
             }
@@ -7714,7 +7833,7 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
                 rt.memory().store32(savedata_utility.parameter_address + kUtilityCommonResultOffset, result);
                 savedata_utility.operation_complete = true;
                 savedata_utility.status = UtilityStatus::Quit;
-                if (VCS_ENV("PSPRECOMP_TRACE") != nullptr) {
+                if (kSavedataTrace || VCS_ENV("PSPRECOMP_TRACE") != nullptr) {
                     std::cerr << "[hle] savedata operation result=0x" << std::hex << std::uppercase << result
                               << std::nouppercase << std::dec << "\n";
                 }
@@ -7725,6 +7844,13 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
         [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
             const UtilityStatus reported = savedata_utility.status;
             ctx.set_gpr(2, static_cast<std::uint32_t>(reported));
+#if defined(VCSNX)
+            static int last_reported = -1;
+            if (static_cast<int>(reported) != last_reported) {
+                last_reported = static_cast<int>(reported);
+                trace_savedata("status", static_cast<std::uint32_t>(reported), 0u);
+            }
+#endif
             if (reported == UtilityStatus::Init) {
                 // PSP utility initialization completes on its own access thread.
                 // Expose INIT once, then make the dialog visible for Update().
@@ -7736,10 +7862,16 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
     runtime.register_hle("sceUtility", 0x9790B33Cu,
         [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
             if (savedata_utility.status != UtilityStatus::Quit) {
+#if defined(VCSNX)
+                trace_savedata("shutdown-busy", 0u, 0x80110001u);
+#endif
                 ctx.set_gpr(2, 0x80110001u);
                 return;
             }
             savedata_utility.status = UtilityStatus::Finished;
+#if defined(VCSNX)
+            trace_savedata("shutdown", 0u, 0u);
+#endif
             set_success(ctx);
         });
 

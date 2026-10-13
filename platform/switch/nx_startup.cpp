@@ -2,7 +2,9 @@
 // and the pre-main checks that stop with a readable message instead of a silent exit.
 
 #include "cpu_clock.hpp"
+#include "log_files.hpp"
 #include "memory_usage.hpp"
+#include "memory_watch.hpp"
 #include "startup_rules.hpp"
 #include "vcs_bootstrap_paths.hpp"
 #include "vcsnx_platform.hpp"
@@ -62,6 +64,11 @@ std::string read_text_file(const std::string &path) {
 }
 
 #if defined(VCSNX_GAME_MODULE)
+// Where vcs_game.so landed, logged once stderr goes to the SD: a crash report's addresses outside vcsnx.nro
+// are base + an offset in vcs_game.so.
+std::uint64_t game_module_base = 0;
+std::uint64_t game_module_size = 0;
+
 // Loads sdmc:/switch/vcsnx/vcs_game.so before main(), while the libnx console can still show a message.
 void load_game_module_or_exit(const std::string &data) {
     const std::string path = data + "/vcs_game.so";
@@ -73,6 +80,8 @@ void load_game_module_or_exit(const std::string &data) {
     if (std::string_view(static_cast<const char *>(module->symbols[1])) != VCSNX_MODULE_ABI)
         show_message_and_exit(vcsnx::module_mismatch_message());
     vcsnx::set_game_module_entry(module->symbols[0]);
+    game_module_base = module->base;
+    game_module_size = module->size;
 }
 #endif
 
@@ -129,11 +138,17 @@ struct StartupChecks {
         // would be lost. Send both to the SD, unbuffered, until the process exits.
         if (__nxlink_host.s_addr == 0) {
             const std::string boot_log = data + "/vcsnx_boot.log";
+            vcsnx::keep_previous_log(boot_log); // the last session's, for a crash or hang
             if (std::FILE *truncate = std::fopen(boot_log.c_str(), "w")) std::fclose(truncate);
             // Both streams append, so neither overwrites what the other wrote.
             if (std::freopen(boot_log.c_str(), "a", stderr) != nullptr) std::setvbuf(stderr, nullptr, _IONBF, 0);
             if (std::freopen(boot_log.c_str(), "a", stdout) != nullptr) std::setvbuf(stdout, nullptr, _IONBF, 0);
         }
+        vcsnx::log_memory_layout();
+#if defined(VCSNX_GAME_MODULE)
+        std::fprintf(stderr, "[vcsnx-module] vcs_game.so base=0x%llx size=%llu KiB\n",
+                     static_cast<unsigned long long>(game_module_base), static_cast<unsigned long long>(game_module_size >> 10));
+#endif
         // Opt-in CPU clock (VCSNX_CPU_MHZ in vcsnx_env.txt, e.g. 1785); restored at exit.
         vcsnx::apply_cpu_clock_boost();
     }
