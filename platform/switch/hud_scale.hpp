@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <cstdint>
 
 namespace vcsnx {
@@ -81,5 +82,33 @@ private:
     long long last_menu_draw_ms_ = -1'000'000;
     bool on_ = false;
 };
+
+// Whether a pause or start menu is on screen, for the picture (vcsnx::menu_source): its target was drawn
+// after the last world draw, within kMenuShownMs (in the pause menu the game draws it every 4 vblanks and
+// draws no world, Mac [present-diag], [menu-diag]; its target is never used while playing). The first world
+// draw ends it at once: a hold after closing showed the first gameplay frames cut to 480 x 272, the money
+// and weapon growing and shrinking back (user, Mac window). Written by the GE thread, read by the one that
+// presents.
+inline constexpr long long kMenuShownMs = 150;
+
+class MenuShown {
+public:
+    void note_menu_draw(long long now_ms) noexcept {
+        last_menu_draw_ms_.store(now_ms, std::memory_order_relaxed);
+        menu_on_top_.store(true, std::memory_order_relaxed);
+    }
+    void note_world_draw() noexcept { menu_on_top_.store(false, std::memory_order_relaxed); }
+    [[nodiscard]] bool shown(long long now_ms) const noexcept {
+        return menu_on_top_.load(std::memory_order_relaxed) &&
+               now_ms - last_menu_draw_ms_.load(std::memory_order_relaxed) <= kMenuShownMs;
+    }
+
+private:
+    std::atomic<long long> last_menu_draw_ms_{-1'000'000};
+    std::atomic<bool> menu_on_top_{false};
+};
+
+// The one the renderer feeds and the window reads.
+[[nodiscard]] MenuShown &menu_shown() noexcept;
 
 } // namespace vcsnx

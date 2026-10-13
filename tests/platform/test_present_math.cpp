@@ -38,5 +38,16 @@ int main() {
              require(same(letterbox(0, 720, 480u, 272u), {0, 0, 0, 0}), "no output");
              require(same(letterbox(1280, 720, 0u, 272u), {0, 0, 0, 0}), "no source");
          }},
+        {"a menu shows the PSP screen's part of the 512 x 320 frame", [] {
+             require(same(vcsnx::menu_source(1280u, 720u, 512.0f, 320.0f), {0, 0, 1200, 612}), "handheld internal");
+             require(same(vcsnx::menu_source(1920u, 1080u, 512.0f, 320.0f), {0, 0, 1800, 918}), "docked internal");
+         }},
+        {"a frame that is already 480 x 272 is shown whole", [] {
+             require(same(vcsnx::menu_source(1280u, 720u, 480.0f, 272.0f), {0, 0, 1280, 720}), "PSPRECOMP_VULKAN_FRAME");
+         }},
+        {"no frame, no menu rectangle", [] {
+             require(same(vcsnx::menu_source(0u, 720u, 512.0f, 320.0f), {0, 0, 0, 0}), "no width");
+             require(same(vcsnx::menu_source(1280u, 720u, 0.0f, 320.0f), {0, 0, 0, 0}), "no logical frame");
+         }},
     });
 }

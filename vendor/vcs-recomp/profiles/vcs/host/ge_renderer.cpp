@@ -46,8 +46,10 @@
 
 #if defined(VCSNX)
 #include "ge_filters.hpp"
+#include "ge_slow_log.hpp"
 #include "hud_scale.hpp"
 #include "hw_verify.hpp"
+#include "reflection_map.hpp"
 #include "trace_clock.hpp"
 #include "vcsnx_hooks.hpp"
 #endif
@@ -2037,6 +2039,10 @@ bool software_raster_skipped(const std::array<std::uint32_t, 256> &commands) noe
         return value == nullptr || (*value != '\0' && *value != '0');
     }();
     if (!ge_gpu_backend_active()) return false;
+#if defined(VCSNX)
+    // The car reflection map's target: drawn on the CPU too, so the cars sample it (vcsnx::cpu_rasterizes_target).
+    if (vcsnx::cpu_rasterizes_target(data24(commands[0x9Du]) & 0x7FCu)) return false;
+#endif
     if (skip_everything) return true;
     const std::uint32_t target = framebuffer_address(commands) & 0x001FFFF0u;
     if (skip_owned) {
@@ -4231,6 +4237,48 @@ void vcsnx_verify_hw_draw(const psprecomp::GuestMemory &memory, const std::array
 }
 #endif
 
+#if defined(VCSNX)
+// The sprites that build the car reflection map, drawn from the frame the GPU drew
+// (vcsnx::is_reflection_map_build). False leaves the draw to the renderer: an index stream, a short or
+// odd stream, a target outside guest memory or a format other than RGB565.
+bool vcsnx_draw_reflection_map(psprecomp::GuestMemory &memory, const std::array<std::uint32_t, 256> &commands,
+                               const GeTransformState &transform, const VertexLayout &layout,
+                               std::uint32_t vertex_address, std::uint32_t count) {
+    constexpr std::uint32_t kMaxSprites = 64u;
+    if (layout.index_type != 0u || count < 2u || count % 2u != 0u || count > kMaxSprites * 2u) return false;
+    std::array<vcsnx::ReflectionSprite, kMaxSprites> sprites{};
+    std::string decode_error;
+    for (std::uint32_t i = 0u; i < count; i += 2u) {
+        Vertex a{};
+        Vertex b{};
+        if (!decode_vertex(memory, vertex_address + i * layout.stride, layout, commands, transform, a, decode_error) ||
+            !decode_vertex(memory, vertex_address + (i + 1u) * layout.stride, layout, commands, transform, b,
+                           decode_error))
+            return false;
+        sprites[i / 2u] = {a.u, a.v, a.x, a.y, b.u, b.v, b.x, b.y};
+    }
+    const std::uint32_t stride = data24(commands[0x9Du]) & 0x7FCu;
+    const std::uint32_t scissor_end = data24(commands[0xD5u]);
+    const int clip_x1 = static_cast<int>(scissor_end & 0x3FFu);
+    const int clip_y1 = static_cast<int>((scissor_end >> 10u) & 0x3FFu);
+    const auto rows = static_cast<std::uint32_t>(clip_y1 + 1);
+    std::uint8_t *pixels =
+        memory.raw_pointer(framebuffer_address(commands), static_cast<std::size_t>(stride) * rows * 2u);
+    if (pixels == nullptr) return false;
+    vcsnx::HostFrameView frame{};
+    const std::span<const std::byte> rgba = ge_gpu_backend_game_frame_rgba();
+    const GeGpuBackendReport report = ge_gpu_backend_report();
+    if (report.offscreen_width != 0u && report.offscreen_height != 0u &&
+        rgba.size() >= static_cast<std::size_t>(report.offscreen_width) * report.offscreen_height * 4u) {
+        const auto [logical_width, logical_height] = vcsnx::hw_verify_frame_extent();
+        frame = {reinterpret_cast<const std::uint8_t *>(rgba.data()), report.offscreen_width,
+                 report.offscreen_height, logical_width, logical_height};
+    }
+    return vcsnx::draw_reflection_sprites(std::span<const vcsnx::ReflectionSprite>(sprites.data(), count / 2u),
+                                          frame, {pixels, stride, rows, data24(commands[0xD2u]) & 3u, clip_x1, clip_y1});
+}
+#endif
+
 bool render_ge_primitive(psprecomp::GuestMemory &memory,
                          const std::array<std::uint32_t, 256> &commands,
                          const GeTransformState &transform,
@@ -4484,9 +4532,15 @@ bool render_ge_primitive(psprecomp::GuestMemory &memory,
 #if defined(VCSNX)
     // A depth-writing 3D draw means the world is drawn, a draw into the menu's target that the pause
     // menu is open (vcsnx::HudGate; the shrink is off while it is).
-    if (!layout.through && (data24(commands[0xE7u]) & 1u) == 0u) hud_gate().note_world_draw(vcsnx::trace_ms());
+    if (!layout.through && (data24(commands[0xE7u]) & 1u) == 0u) {
+        hud_gate().note_world_draw(vcsnx::trace_ms());
+        vcsnx::menu_shown().note_world_draw();  // a menu is gone from the first world draw
+    }
     const std::uint32_t vcsnx_draw_target = data24(commands[0x9Cu]);
-    if (vcsnx::is_frontend_target(vcsnx_draw_target)) hud_gate().note_menu_draw(vcsnx::trace_ms());
+    if (vcsnx::is_frontend_target(vcsnx_draw_target)) {
+        hud_gate().note_menu_draw(vcsnx::trace_ms());
+        vcsnx::menu_shown().note_menu_draw(vcsnx::trace_ms());  // the picture (vcsnx::menu_source)
+    }
     {
         // The red line trail the game adds to the world target every frame: hidden on the PSP, a scribble
         // on black here when pausing (vcsnx::is_hidden_line_trail).
@@ -4499,6 +4553,17 @@ bool render_ge_primitive(psprecomp::GuestMemory &memory,
             error.clear();
             return true;
         }
+    }
+    // The car reflection map, drawn from the frame the GPU drew instead of from VRAM, which holds no world
+    // here (vcsnx::is_reflection_map_build).
+    if (layout.through && primitive == 6u &&
+        vcsnx::is_reflection_map_build({true, primitive, (data24(commands[0x1Eu]) & 1u) != 0u,
+                                        data24(commands[0x9Du]) & 0x7FCu, texture_address(commands, 0u),
+                                        ge_gpu_backend_last_winner_target()}) &&
+        vcsnx_draw_reflection_map(memory, commands, transform, layout, vertex_address, count)) {
+        advance_stream();
+        error.clear();
+        return true;
     }
 #endif
 
@@ -4523,6 +4588,10 @@ bool render_ge_primitive(psprecomp::GuestMemory &memory,
         ge_gpu_backend_texture_needed(gpu_draw) &&
         !ge_gpu_backend_adopt_shared_texture(gpu_draw)) {
         PhaseTimer texture_timer(g_ge_texture_upload_ns);
+#if defined(VCSNX)
+        // VCSNX: where a slow list's time goes when it uploads new textures (ge_slow_log.hpp).
+        const vcsnx::StepTimer texture_step(vcsnx::TextureStep::Block);
+#endif
         const bool framebuffer_feedback =
             ge_gpu_backend_is_framebuffer_feedback_texture(gpu_draw);
         const std::uint32_t level_count = framebuffer_feedback ? 1u :
@@ -4546,6 +4615,10 @@ bool render_ge_primitive(psprecomp::GuestMemory &memory,
             try { decoded.resize(total_bytes); } catch (...) { all = false; }
         }
         std::size_t offset = 0u;
+        {
+#if defined(VCSNX)
+        const vcsnx::StepTimer decode_step(vcsnx::TextureStep::Decode);
+#endif
         for (std::uint32_t level = 0u; all && level < level_count; ++level) {
             const std::size_t bytes = static_cast<std::size_t>(mip_setups[level].width) *
                                       mip_setups[level].height * 4u;
@@ -4555,6 +4628,7 @@ bool render_ge_primitive(psprecomp::GuestMemory &memory,
                 break;
             }
             offset += bytes;
+        }
         }
         if (all) {
             (void)ge_gpu_backend_upload_decoded_texture_chain_packed(

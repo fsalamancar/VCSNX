@@ -1,6 +1,7 @@
 #pragma once
-// Routes std::cerr on the device: "[frame-time]" lines feed perf.log, every other line goes to
-// vcsnx_stderr.log and to the original stderr (nxlink when connected).
+// Routes std::cerr on the device: "[frame-time]" and "[ge-phase]" lines feed perf.log, every other line goes
+// to vcsnx_stderr.log and to the original stderr (nxlink when connected). The files are written by a
+// background thread (async_log.hpp).
 
 #include <functional>
 #include <mutex>

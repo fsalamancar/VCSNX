@@ -21,7 +21,7 @@ módulo con el código del juego que cada jugador crea con su propia copia. Desa
 - Una **ventana simple** titulada **"GTA VCS Compiler"** (solo texto: el logo del juego es de Rockstar), con **"bAlo productions"** abajo como crédito.
 - **Todo incluido**: un `.zip` que no pide instalar nada aparte.
 - **Copiar todo a la SD** si el jugador la elige, y poner **la imagen (artwork) que el jugador quiera** como ícono.
-- **Partir ya en la v1**, como el port de LCS, para que el `.nro` se pueda publicar.
+- **Partir ya en la v1**, para que el `.nro` se pueda publicar.
 - Probar Windows con **Wine** en el Mac.
 
 ### Supuestos

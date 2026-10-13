@@ -11,13 +11,26 @@ set(VCSNX_PLATFORM_SOURCES
     "${VCSNX_PLATFORM_DIR}/gpu_frame_hold.cpp"
     "${VCSNX_PLATFORM_DIR}/hud_scale.cpp"
     "${VCSNX_PLATFORM_DIR}/hw_verify.cpp"
+    "${VCSNX_PLATFORM_DIR}/main_watchdog.cpp"
     "${VCSNX_PLATFORM_DIR}/memory_usage.cpp"
     "${VCSNX_PLATFORM_DIR}/pad_mapping.cpp"
     "${VCSNX_PLATFORM_DIR}/log_files.cpp"
     "${VCSNX_PLATFORM_DIR}/memory_watch.cpp"
     "${VCSNX_PLATFORM_DIR}/perf_log.cpp"
     "${VCSNX_PLATFORM_DIR}/platform.cpp"
+    "${VCSNX_PLATFORM_DIR}/alloc_diag.cpp"
+    "${VCSNX_PLATFORM_DIR}/alloc_wrap.cpp"
+    "${VCSNX_PLATFORM_DIR}/async_log.cpp"
+    "${VCSNX_PLATFORM_DIR}/audio_out.cpp"
+    "${VCSNX_PLATFORM_DIR}/audio_resample.cpp"
+    "${VCSNX_PLATFORM_DIR}/crash_log.cpp"
+    "${VCSNX_PLATFORM_DIR}/ge_slow_log.cpp"
+    "${VCSNX_PLATFORM_DIR}/range_allocator.cpp"
+    "${VCSNX_PLATFORM_DIR}/ge_timeline.cpp"
+    "${VCSNX_PLATFORM_DIR}/guest_io.cpp"
     "${VCSNX_PLATFORM_DIR}/present_phases.cpp"
+    "${VCSNX_PLATFORM_DIR}/ram_files.cpp"
+    "${VCSNX_PLATFORM_DIR}/reflection_map.cpp"
     "${VCSNX_PLATFORM_DIR}/startup_rules.cpp"
     "${VCSNX_PLATFORM_DIR}/stderr_tee.cpp"
     "${VCSNX_PLATFORM_DIR}/switch_prompts.cpp"
@@ -97,6 +110,11 @@ else()
 endif()
 vcsnx_configure_host(vcsnx)
 vcsnx_configure_gpu_backend(vcsnx)
+if(VCSNX_TARGET_SWITCH)
+    # VCSNX_ALLOC_DIAG (platform/switch/alloc_diag.hpp): every C heap call of the runtime, mesa and SDL.
+    target_link_options(vcsnx PRIVATE "-Wl,--wrap=malloc,--wrap=free,--wrap=calloc,--wrap=realloc"
+        "-Wl,--wrap=memalign,--wrap=aligned_alloc,--wrap=posix_memalign")
+endif()
 if(VCSNX_TARGET_SWITCH AND VCSNX_GPU_BACKEND STREQUAL "vulkan")
     # C11 threads for the legacy EGL copy (tools/build_mesa_switch.sh renames its references).
     target_sources(vcsnx PRIVATE "${VCSNX_PLATFORM_DIR}/legacy_c11_shim.c")

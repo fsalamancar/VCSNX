@@ -632,6 +632,9 @@ std::uint64_t audio_output_frames_played() {
 // channel's queue may grow, so a channel that is (for whatever reason)
 // decoding far ahead of real time cannot accumulate unbounded latency.
 #include <SDL.h>
+#if defined(VCSNX) && defined(__SWITCH__)
+#include "audio_out.hpp"
+#endif
 
 #include <condition_variable>
 #include <deque>
@@ -691,6 +694,13 @@ struct AudioState {
     std::array<ChannelQueue, kGuestChannels> channels{};
     std::atomic<std::uint64_t> frames_played{0u};
     std::uint64_t last_summary_frames_played{};
+#if defined(VCSNX)
+    // VCSNX (PSPRECOMP_AUDIO_SUMMARY): whether the device really plays 44.1 kHz of frames per second of
+    // wall time, and the longest wait between two callbacks (a starved SDL audio thread).
+    std::chrono::steady_clock::time_point opened_at{};
+    std::atomic<std::int64_t> last_callback_us{0};
+    std::atomic<std::int64_t> max_callback_gap_us{0};
+#endif
     bool opened{};
     bool failed{};
     bool closed{};
@@ -793,6 +803,15 @@ bool summary_diagnostics_enabled() {
 void SDLCALL audio_callback(void *userdata, Uint8 *stream, int len) {
     AudioState &state = *static_cast<AudioState *>(userdata);
     const std::size_t frame_count = static_cast<std::size_t>(len) / (kOutputChannels * sizeof(std::int16_t));
+#if defined(VCSNX)
+    {
+        const std::int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - state.opened_at).count();
+        const std::int64_t last = state.last_callback_us.exchange(now_us, std::memory_order_relaxed);
+        if (last != 0 && now_us - last > state.max_callback_gap_us.load(std::memory_order_relaxed))
+            state.max_callback_gap_us.store(now_us - last, std::memory_order_relaxed);
+    }
+#endif
     auto *out = reinterpret_cast<std::int16_t *>(stream);
     // Accumulate every channel's contribution at full int32 precision and
     // clamp to int16 exactly once, after all channels are summed -- not
@@ -838,12 +857,30 @@ void SDLCALL audio_callback(void *userdata, Uint8 *stream, int len) {
     }
 }
 
+#if defined(VCSNX) && defined(__SWITCH__)
+// VCSNX: the Switch plays through audout at 48 kHz (platform/switch/audio_out.hpp); the mix is the same.
+void switch_audio_fill(void *user, std::int16_t *frames, std::size_t count) {
+    audio_callback(user, reinterpret_cast<Uint8 *>(frames), static_cast<int>(count * kOutputChannels * sizeof(std::int16_t)));
+}
+bool switch_audio_out_active = false;
+#endif
+
 // Guarded by state.device_mutex, separate from the per-channel mutexes, so
 // device open/close stays serialized without forcing every channel's data
 // operations through one shared lock.
 bool ensure_device_locked(AudioState &state) {
     if (state.opened) return true;
     if (state.failed || state.closed) return false;
+#if defined(VCSNX) && defined(__SWITCH__)
+    state.opened_at = std::chrono::steady_clock::now();
+    if (vcsnx::start_audio_out(&switch_audio_fill, &state)) {
+        switch_audio_out_active = true;
+        state.opened = true;
+        std::cerr << "[audio-host] opened driver=audout rate=48000 buffers=4x1024 mix=" << kSampleRate << "\n";
+        return true;
+    }
+    std::cerr << "[audio-host] audout unavailable, using SDL\n";
+#endif
 
     if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
         if (diagnostics_enabled()) std::cerr << "[audio-host] SDL_InitSubSystem(AUDIO) failed: " << SDL_GetError() << "\n";
@@ -878,6 +915,13 @@ bool ensure_device_locked(AudioState &state) {
     }
     state.device = device;
     state.opened = true;
+#if defined(VCSNX)
+    state.opened_at = std::chrono::steady_clock::now();
+    std::cerr << "[audio-host] opened freq=" << obtained.freq << " samples=" << obtained.samples
+              << " channels=" << static_cast<unsigned>(obtained.channels) << " format=0x" << std::hex
+              << obtained.format << std::dec << " driver=" << (SDL_GetCurrentAudioDriver() != nullptr
+                                                                   ? SDL_GetCurrentAudioDriver() : "?") << "\n";
+#endif
     SDL_PauseAudioDevice(state.device, 0);
     return true;
 }
@@ -1008,6 +1052,12 @@ void audio_output_advance(std::uint64_t guest_time_us) {
     }
     std::cerr << "[audio-summary] guest_us=" << guest_time_us
               << " frames_played=" << frames_played;
+#if defined(VCSNX)
+    std::cerr << " wall_ms="
+              << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                                      state.opened_at).count()
+              << " cb_gap_max_ms=" << state.max_callback_gap_us.exchange(0, std::memory_order_relaxed) / 1000;
+#endif
     for (std::size_t channel = 0u; channel < kGuestChannels; ++channel) {
         ChannelQueue &q = state.channels[channel];
         std::lock_guard<std::mutex> guard(q.mutex);
@@ -1069,6 +1119,12 @@ void audio_output_shutdown() {
         // Latched: ensure_device() must not reopen the device while or after the close runs.
         state.closed = true;
     }
+#if defined(VCSNX) && defined(__SWITCH__)
+    if (switch_audio_out_active) {
+        vcsnx::stop_audio_out(); // joins its thread: no callback runs after this
+        switch_audio_out_active = false;
+    } else
+#endif
     // Close OUTSIDE the lock. SDL's CoreAudio driver stops the render queue with
     // AudioQueueStop(queue, immediate=0), which blocks until in-flight render
     // callbacks have returned -- and our callback takes each channel's mutex.

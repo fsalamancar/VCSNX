@@ -167,5 +167,23 @@ int main() {
              require(world.active(1300), "thousands of world draws: playing");
              require(!world.active(1200 + 2 * vcsnx::kWorldActivityWindowMs + 1), "world gone");
          }},
+        {"a menu counts as shown while its target is drawn", [] {
+             vcsnx::MenuShown menu;
+             require(!menu.shown(1000), "no menu yet");
+             menu.note_menu_draw(1000);
+             require(menu.shown(1000), "just drawn");
+             // In the pause menu the game draws its target every 4 vblanks (Mac [present-diag]).
+             require(menu.shown(1000 + vcsnx::kMenuShownMs - 1), "between two menu frames");
+             require(!menu.shown(1000 + vcsnx::kMenuShownMs + 1), "menu closed");
+         }},
+        {"the menu is gone from the first world draw after it", [] {
+             // User, Mac window: "al cerrar el menu el hud del dinero y armas se agranda y se achica".
+             vcsnx::MenuShown menu;
+             menu.note_menu_draw(1000);
+             menu.note_world_draw();
+             require(!menu.shown(1033), "the first gameplay frame is shown whole");
+             menu.note_menu_draw(1066);
+             require(menu.shown(1066), "the menu again");
+         }},
     });
 }

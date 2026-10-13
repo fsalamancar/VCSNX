@@ -61,6 +61,11 @@ HudBox hud_shrunk_box(const HudBox &box, const HudShrink &shrink) noexcept {
             std::ceil(hud_shrunk(box.y1, shrink.anchor_y, shrink.scale))};
 }
 
+MenuShown &menu_shown() noexcept {
+    static MenuShown menu;
+    return menu;
+}
+
 bool is_frontend_target(std::uint32_t target_address) noexcept {
     return (target_address & 0x001FFFF0u) == kFrontendTarget;
 }

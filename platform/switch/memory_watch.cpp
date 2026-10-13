@@ -1,5 +1,7 @@
 #include "memory_watch.hpp"
 
+#include "alloc_diag.hpp"
+
 #include <cstdio>
 
 #if defined(__SWITCH__)
@@ -67,7 +69,9 @@ void report(const char *what, std::size_t size, void *caller) noexcept {
 }
 
 void *allocate(std::size_t size, void *caller) {
+    g_new_caller = reinterpret_cast<std::uint64_t>(caller); // alloc_diag.hpp: who asked, not operator new
     void *memory = std::malloc(size == 0u ? 1u : size);
+    g_new_caller = 0u;
     if (memory == nullptr) {
         report("out of memory", size, caller);
         throw std::bad_alloc();

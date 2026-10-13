@@ -1,5 +1,6 @@
 #include "stderr_tee.hpp"
 
+#include "async_log.hpp"
 #include "log_files.hpp"
 #include "memory_usage.hpp"
 #include "perf_log.hpp"
@@ -7,6 +8,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <iostream>
 #include <utility>
 
@@ -68,6 +70,7 @@ void install_stderr_tee(const std::string &data_dir) {
     std::call_once(once, [&data_dir] {
         static PerfWindow window;
         static LoadingWatch loading;
+        static MemorySampler memory(300u); // about once a perf.log window: each read is 5-7 ms on the Switch
         static std::FILE *perf = std::fopen((data_dir + "/perf.log").c_str(), "a");
         keep_previous_log(data_dir + "/vcsnx_stderr.log"); // the last session's, for a crash or hang
         keep_previous_log(data_dir + "/vcsnx_stall.log");
@@ -77,25 +80,29 @@ void install_stderr_tee(const std::string &data_dir) {
             std::fputs("--- vcsnx session ---\n", perf);
             std::fflush(perf);
         }
-        static LineTeeBuf tee(std::cerr.rdbuf(), [](const std::string &line) {
+        // The SD writes happen on the writer's thread (async_log.hpp), never on the thread that logs: the
+        // stderr copy too, which is vcsnx_boot.log unbuffered (nx_startup.cpp) or nxlink. Kept for the whole
+        // process (no destructor racing late log lines); what is queued is written at exit.
+        static AsyncLineWriter *writer = new AsyncLineWriter;
+        std::atexit([] { writer->flush(); });
+        static LineTeeBuf tee(nullptr, [](const std::string &line) {
             if (const auto sample = parse_frame_time_line(line)) {
-                if (const auto summary = window.add(*sample, memory_in_use_mb()); summary && perf != nullptr) {
-                    std::fputs(summary->c_str(), perf);
-                    std::fputc('\n', perf);
+                if (const auto summary = window.add(*sample, memory.sample(memory_in_use_mb)); summary) {
+                    writer->write(perf, *summary);
                     if (loading.observe(window.last_window())) {
-                        std::fputs("loading screen for 30 s: game threads dumped to vcsnx_stderr.log ([loading-stall])\n", perf);
+                        writer->write(perf, "loading screen for 30 s: game threads dumped to vcsnx_stderr.log ([loading-stall])");
                         request_scheduler_dump();
                     }
-                    std::fflush(perf);
                 }
                 return false; // ~30 lines/s: summarised in perf.log, not forwarded
             }
-            if (log != nullptr) {
-                std::fputs(line.c_str(), log);
-                std::fputc('\n', log);
-                std::fflush(log);
+            if (const auto phase = parse_ge_phase_line(line)) {
+                window.add_phase(*phase); // PSPRECOMP_GE_PHASE_DIAG: one per vblank, summarised the same way
+                return false;
             }
-            return true;
+            writer->write(log, line);
+            writer->write(stderr, line);
+            return false;
         });
         std::cerr.rdbuf(&tee);
     });

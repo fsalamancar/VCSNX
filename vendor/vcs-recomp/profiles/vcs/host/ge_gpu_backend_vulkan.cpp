@@ -41,8 +41,11 @@
 #if defined(VCSNX)
 #include "psp_ge_hw_frag_spv.h" // psp_ge.frag with -DVCS_HW_PUSH_LAYOUT
 #include "copy_present.hpp"
+#include "bucket_recycler.hpp"
 #include "frame_budget.hpp"
+#include "ge_slow_log.hpp"
 #include "present_phases.hpp"
+#include "range_allocator.hpp"
 #endif
 #include "psp_ge_hw_vert_spv.h"
 #include "psp_ge_hw_packed0115_vert_spv.h"
@@ -71,6 +74,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <iostream>
 #include <unordered_set>
 #include <cctype>
 #include <cstdlib>
@@ -473,6 +477,11 @@ struct TextureEntry {
     // textures "breaking" progressively during a long play session (DX12's
     // backend already evicts by this same recency rule; this one never did).
     std::uint64_t last_used_epoch{0u};
+#if defined(VCSNX)
+    // VCSNX: bound to `range` of a shared texture block (`memory` stays null) -- see bind_from_texture_block().
+    bool in_block{false};
+    vcsnx::Range range{};
+#endif
 };
 
 // One recorded draw: a contiguous run of vertices plus the state they need.
@@ -895,6 +904,12 @@ struct VulkanGeState {
     // Most video memory the replacement textures may hold (set from the GPU at start-up).
     std::uint64_t replacement_budget{3ull << 30};
     std::unordered_map<std::uint64_t, VkSampler> samplers;
+#if defined(VCSNX)
+    // VCSNX: the game's textures share 32 MiB blocks of GPU memory (platform/switch/range_allocator.hpp).
+    vcsnx::RangeAllocator texture_ranges{std::uint64_t{32} << 20};
+    std::vector<VkDeviceMemory> texture_blocks;
+    std::uint32_t texture_block_type{UINT32_MAX};
+#endif
     TextureEntry dummy_texture{};
     // Cache capacity actually enforced at runtime -- sized from
     // Rendering.TextureCacheEntries at create_backend() time (see there),
@@ -934,6 +949,10 @@ struct VulkanGeState {
         std::uint32_t next_sequence{}; // VCSNX: next Batch/HwTransformBatch::sequence
     };
     std::vector<FrameBucket> frame_buckets;
+#if defined(VCSNX)
+    // VCSNX: emptied buckets keep their memory for the next frame (platform/switch/bucket_recycler.hpp).
+    vcsnx::BucketRecycler<FrameBucket> bucket_recycler{std::size_t{128} << 20};
+#endif
 
     // GPU work for one frame is submitted here and only waited on at the
     // start of the *next* finish_color_frame() call (by which point a full
@@ -972,6 +991,61 @@ struct VulkanGeState {
 VulkanGeState &state() {
     static VulkanGeState s;
     return s;
+}
+
+#if defined(VCSNX)
+// VCSNX: every game pipeline compile is counted and logged (platform/switch/ge_slow_log.hpp).
+void vcsnx_note_pipeline_compile(const char *kind, std::chrono::steady_clock::time_point begin,
+                                 std::size_t total) noexcept {
+    const auto us = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - begin).count());
+    vcsnx::count_pipeline_compile(us);
+    char line[96];
+    std::snprintf(line, sizeof line, "[vulkan] %s pipeline %zu compiled in %.1f ms\n", kind, total,
+                  static_cast<double>(us) / 1000.0);
+    std::cerr << line; // through the stderr tee's writer thread, not a synchronous SD write on the GE worker
+}
+
+void empty_frame_bucket(VulkanGeState::FrameBucket &bucket) noexcept {
+    bucket.address = 0u;
+    bucket.vertices.clear();
+    bucket.batches.clear();
+    bucket.hw_vertices.clear();
+    bucket.hw_packed.clear();
+    bucket.hw_indices.clear();
+    bucket.hw_batches.clear();
+    bucket.next_sequence = 0u;
+}
+
+std::size_t frame_bucket_bytes(const VulkanGeState::FrameBucket &bucket) noexcept {
+    return bucket.vertices.capacity() * sizeof(GeGpuVertex) + bucket.batches.capacity() * sizeof(Batch) +
+           bucket.hw_vertices.capacity() * sizeof(GeGpuVertex) +
+           bucket.hw_packed.capacity() * sizeof(Packed0115Vertex) +
+           bucket.hw_indices.capacity() * sizeof(std::uint32_t) +
+           bucket.hw_batches.capacity() * sizeof(HwTransformBatch);
+}
+#endif
+
+// The end of a frame's buckets. VCSNX: kept, emptied, for the next frame's (bucket_recycler.hpp).
+void clear_frame_buckets(VulkanGeState &s) {
+#if defined(VCSNX)
+    s.bucket_recycler.recycle(s.frame_buckets, &empty_frame_bucket, &frame_bucket_bytes);
+#else
+    s.frame_buckets.clear();
+#endif
+}
+
+VulkanGeState::FrameBucket new_frame_bucket(VulkanGeState &s, std::uint32_t address) {
+#if defined(VCSNX)
+    VulkanGeState::FrameBucket bucket = s.bucket_recycler.take();
+    bucket.address = address;
+    return bucket;
+#else
+    (void)s;
+    VulkanGeState::FrameBucket bucket{};
+    bucket.address = address;
+    return bucket;
+#endif
 }
 
 // See ge_gpu_backend_lock()/unlock()'s comment in ge_gpu_backend.hpp: this
@@ -1178,9 +1252,68 @@ void destroy_texture_entry(VulkanGeState &s, TextureEntry &entry) noexcept {
     }
     if (entry.view != VK_NULL_HANDLE) vkDestroyImageView(s.device, entry.view, nullptr);
     if (entry.image != VK_NULL_HANDLE) vkDestroyImage(s.device, entry.image, nullptr);
+#if defined(VCSNX)
+    if (entry.in_block) s.texture_ranges.give_back(entry.range);  // its memory is the block's
+#endif
     if (entry.memory != VK_NULL_HANDLE) vkFreeMemory(s.device, entry.memory, nullptr);
     entry = TextureEntry{};
 }
+
+#if defined(VCSNX)
+// VCSNX: on the Switch each vkAllocateMemory + bind of a new texture cost 1.36 ms on the GE worker (99b5cb3: 74% of
+// a new texture's cost, ~40% of the lists that stutter when objects pop in). The image is bound instead to a range
+// of a shared 32 MiB block; a block is allocated only when none has room. Returns false when the caller should
+// give the image its own allocation as before: VCSNX_TEX_SUBALLOC=0, an image over 8 MiB, another memory type,
+// or a block that could not be made.
+bool bind_from_texture_block(VulkanGeState &s, TextureEntry &entry, const VkMemoryRequirements &requirements,
+                             std::uint32_t type_index) noexcept {
+    static const bool enabled = [] {
+        const char *text = VCS_ENV("VCSNX_TEX_SUBALLOC");
+        return text == nullptr || *text != '0';
+    }();
+    if (!enabled || requirements.size > s.texture_ranges.block_bytes() / 4u) return false;
+    if (s.texture_block_type == UINT32_MAX) s.texture_block_type = type_index;
+    if (type_index != s.texture_block_type) return false;
+    std::optional<vcsnx::Range> range;
+    try {
+        range = s.texture_ranges.take(requirements.size, requirements.alignment);
+        if (!range) {
+            VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+            allocate.allocationSize = s.texture_ranges.block_bytes();
+            allocate.memoryTypeIndex = type_index;
+            VkDeviceMemory block = VK_NULL_HANDLE;
+            if (vkAllocateMemory(s.device, &allocate, nullptr, &block) != VK_SUCCESS) return false;
+            try {
+                s.texture_blocks.push_back(block);
+            } catch (...) {
+                vkFreeMemory(s.device, block, nullptr);
+                return false;
+            }
+            try {
+                s.texture_ranges.add_block();
+            } catch (...) {
+                s.texture_blocks.pop_back();
+                vkFreeMemory(s.device, block, nullptr);
+                return false;
+            }
+            std::cerr << "[vulkan] texture block " << s.texture_blocks.size() << " allocated ("
+                      << (s.texture_ranges.block_bytes() >> 20) << " MB, image alignment "
+                      << requirements.alignment << ")\n";
+            range = s.texture_ranges.take(requirements.size, requirements.alignment);
+        }
+    } catch (...) {
+        return false;
+    }
+    if (!range) return false;
+    if (vkBindImageMemory(s.device, entry.image, s.texture_blocks[range->block], range->offset) != VK_SUCCESS) {
+        s.texture_ranges.give_back(*range);
+        return false;
+    }
+    entry.in_block = true;
+    entry.range = *range;
+    return true;
+}
+#endif
 
 // Non-blocking texture uploads. GPU queue order already guarantees an upload has finished before
 // any later draw samples it (the upload ends in a pipeline barrier to the fragment stage), so the
@@ -1293,7 +1426,13 @@ void flush_uploads_and_wait(VulkanGeState &s) noexcept {
     image_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                        VK_IMAGE_USAGE_SAMPLED_BIT;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    if (vkCreateImage(s.device, &image_info, nullptr, &out.image) != VK_SUCCESS) return false;
+    {
+#if defined(VCSNX)
+        // VCSNX: the Vulkan objects and the memory of each new texture are timed (ge_slow_log.hpp).
+        const vcsnx::StepTimer objects_step(vcsnx::TextureStep::Objects);
+#endif
+        if (vkCreateImage(s.device, &image_info, nullptr, &out.image) != VK_SUCCESS) return false;
+    }
 
     VkMemoryRequirements requirements{};
     vkGetImageMemoryRequirements(s.device, out.image, &requirements);
@@ -1304,8 +1443,17 @@ void flush_uploads_and_wait(VulkanGeState &s) noexcept {
     VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     allocate.allocationSize = requirements.size;
     allocate.memoryTypeIndex = type_index;
-    if (vkAllocateMemory(s.device, &allocate, nullptr, &out.memory) != VK_SUCCESS) return false;
-    if (vkBindImageMemory(s.device, out.image, out.memory, 0) != VK_SUCCESS) return false;
+    {
+#if defined(VCSNX)
+        const vcsnx::StepTimer alloc_step(vcsnx::TextureStep::Alloc);
+        if (!bind_from_texture_block(s, out, requirements, type_index)) {
+#endif
+        if (vkAllocateMemory(s.device, &allocate, nullptr, &out.memory) != VK_SUCCESS) return false;
+        if (vkBindImageMemory(s.device, out.image, out.memory, 0) != VK_SUCCESS) return false;
+#if defined(VCSNX)
+        }
+#endif
+    }
 
     VkCommandBuffer cmd = VK_NULL_HANDLE;
     VkDeviceSize upload_offset = 0u;
@@ -1369,6 +1517,9 @@ void flush_uploads_and_wait(VulkanGeState &s) noexcept {
     view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     view_info.subresourceRange.levelCount = mip_levels;
     view_info.subresourceRange.layerCount = 1u;
+#if defined(VCSNX)
+    const vcsnx::StepTimer objects_step(vcsnx::TextureStep::Objects);
+#endif
     if (vkCreateImageView(s.device, &view_info, nullptr, &out.view) != VK_SUCCESS) { flush_uploads_and_wait(s); return false; }
 
     VkDescriptorSetAllocateInfo descriptor_allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
@@ -1534,9 +1685,15 @@ void flush_uploads_and_wait(VulkanGeState &s) noexcept {
     info.subpass = 0u;
 
     VkPipeline pipeline = VK_NULL_HANDLE;
+#if defined(VCSNX)
+    const auto compile_begin = std::chrono::steady_clock::now();
+#endif
     if (vkCreateGraphicsPipelines(s.device, VK_NULL_HANDLE, 1, &info, nullptr, &pipeline) !=
         VK_SUCCESS)
         return VK_NULL_HANDLE;
+#if defined(VCSNX)
+    vcsnx_note_pipeline_compile("screen", compile_begin, s.pipelines.size() + s.hw_pipelines.size() + 1u);
+#endif
     s.pipelines.emplace(key, pipeline);
     s.report.unique_pipeline_keys = s.pipelines.size();
     ++s.report.depth_pipeline_variants_created;
@@ -1719,9 +1876,15 @@ void flush_uploads_and_wait(VulkanGeState &s) noexcept {
     info.subpass = 0u;
 
     VkPipeline pipeline = VK_NULL_HANDLE;
+#if defined(VCSNX)
+    const auto compile_begin = std::chrono::steady_clock::now();
+#endif
     if (vkCreateGraphicsPipelines(s.device, VK_NULL_HANDLE, 1, &info, nullptr, &pipeline) !=
         VK_SUCCESS)
         return VK_NULL_HANDLE;
+#if defined(VCSNX)
+    vcsnx_note_pipeline_compile("hw", compile_begin, s.pipelines.size() + s.hw_pipelines.size() + 1u);
+#endif
     s.hw_pipelines.emplace(key, pipeline);
     return pipeline;
 }
@@ -1744,6 +1907,13 @@ void destroy_backend(VulkanGeState &s) noexcept {
         for (auto &entry : s.textures) destroy_texture(entry.second);
         s.textures.clear();
         destroy_texture(s.dummy_texture);
+#if defined(VCSNX)
+        // The textures above were destroyed first; their shared blocks go now.
+        for (VkDeviceMemory block : s.texture_blocks) vkFreeMemory(s.device, block, nullptr);
+        s.texture_blocks.clear();
+        s.texture_ranges = vcsnx::RangeAllocator(s.texture_ranges.block_bytes());
+        s.texture_block_type = UINT32_MAX;
+#endif
         if (s.vertex_mapped != nullptr) vkUnmapMemory(s.device, s.vertex_memory);
         s.vertex_mapped = nullptr;
         if (s.hw_vertex_mapped != nullptr) vkUnmapMemory(s.device, s.hw_vertex_memory);
@@ -5008,7 +5178,7 @@ bool initialize_ge_gpu_backend(std::string &error) {
     destroy_backend(s);
     s.report = GeGpuBackendReport{};
     s.display_framebuffer = 0u;
-    s.frame_buckets.clear();
+    clear_frame_buckets(s);
     s.submission_pending = false;
     s.frame_valid = false;
     s.has_last_winner = false;
@@ -5408,7 +5578,7 @@ void ge_gpu_backend_accumulate_color_triangles(
         if (candidate.address == address) { bucket = &candidate; break; }
     }
     if (bucket == nullptr) {
-        s.frame_buckets.push_back(VulkanGeState::FrameBucket{address, {}, {}});
+        s.frame_buckets.push_back(new_frame_bucket(s, address));
         bucket = &s.frame_buckets.back();
     }
 
@@ -5565,7 +5735,7 @@ void fold_texture_size_into_uv(HwTransformPushConstants &pc, const GeGpuDrawDesc
         if (candidate.address == address) { bucket = &candidate; break; }
     }
     if (bucket == nullptr) {
-        s.frame_buckets.push_back(VulkanGeState::FrameBucket{address, {}, {}, {}, {}, {}, {}});
+        s.frame_buckets.push_back(new_frame_bucket(s, address));
         bucket = &s.frame_buckets.back();
     }
     return true;
@@ -6138,6 +6308,11 @@ vcsnx::PresentPhaseSample &present_phase_sample() noexcept {
     static vcsnx::PresentPhaseSample sample;
     return sample;
 }
+// When the frame now in flight was submitted (present phases: since_submit).
+std::chrono::steady_clock::time_point &frame_submit_time() noexcept {
+    static std::chrono::steady_clock::time_point time;
+    return time;
+}
 double ms_since(std::chrono::steady_clock::time_point start) noexcept {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
 }
@@ -6153,6 +6328,19 @@ bool defer_enabled() noexcept {
 }
 #endif
 
+#if defined(VCSNX)
+// Whether this vblank brings anything to draw (vcsnx::batch_draws): the game's composition of the frame into
+// the displayed buffer, on the vblank after it, does not.
+static bool frame_has_drawing(const VulkanGeState &s) noexcept {
+    for (const VulkanGeState::FrameBucket &bucket : s.frame_buckets) {
+        if (!bucket.hw_batches.empty()) return true;
+        for (const Batch &batch : bucket.batches)
+            if (vcsnx::batch_draws(batch.clear_mode, batch.sampled_vram_address, bucket.address)) return true;
+    }
+    return false;
+}
+#endif
+
 static bool finish_color_frame_impl(std::uint64_t vblank) noexcept {
     VulkanGeState &s = state();
     if (!s.enabled) return false;
@@ -6162,7 +6350,7 @@ static bool finish_color_frame_impl(std::uint64_t vblank) noexcept {
     // exercises the deferred path.
     static const bool defer_always = std::getenv("VCSNX_DEBUG_DEFER_ALWAYS") != nullptr;
     if (defer_enabled() &&
-        vcsnx::defer_previous_frame(s.submission_pending, !s.frame_buckets.empty(),
+        vcsnx::defer_previous_frame(s.submission_pending, frame_has_drawing(s),
                                     !defer_always && s.submission_pending &&
                                         vkGetFenceStatus(s.device, s.fence) == VK_SUCCESS)) {
         present_frame_deferred() = true;  // collected on a later vblank; the window keeps its picture
@@ -6193,6 +6381,11 @@ static bool finish_color_frame_impl(std::uint64_t vblank) noexcept {
         s.submission_pending = false;
 #if defined(VCSNX)
         const auto fence_start = std::chrono::steady_clock::now();
+        if (present_phases_enabled()) {
+            present_phase_sample().ready = vkGetFenceStatus(s.device, s.fence) == VK_SUCCESS;
+            present_phase_sample().since_submit_ms =
+                std::chrono::duration<double, std::milli>(fence_start - frame_submit_time()).count();
+        }
 #endif
         if (vkWaitForFences(s.device, 1, &s.fence, VK_TRUE, 5'000'000'000ull) == VK_SUCCESS) {
 #if defined(VCSNX)
@@ -6555,13 +6748,13 @@ static bool finish_color_frame_impl(std::uint64_t vblank) noexcept {
         if (&bucket != winner) rejected_vertices += bucket_geometry(bucket);
     s.report.frames_without_displayed_target += rejected_vertices;
     if (winner == nullptr || (winner->batches.empty() && winner->hw_batches.empty())) {
-        s.frame_buckets.clear();
+        clear_frame_buckets(s);
         s.cloud_cameras.clear();
         return produced_frame;
     }
 #if defined(VCSNX)
     if (composition_without_source) {
-        s.frame_buckets.clear();
+        clear_frame_buckets(s);
         s.cloud_cameras.clear();
         return produced_frame;
     }
@@ -6571,7 +6764,7 @@ static bool finish_color_frame_impl(std::uint64_t vblank) noexcept {
     if (winner->hw_batches.empty() &&
         std::all_of(winner->batches.begin(), winner->batches.end(),
                     [](const Batch &batch) { return batch.clear_mode; })) {
-        s.frame_buckets.clear();
+        clear_frame_buckets(s);
         s.cloud_cameras.clear();
         return produced_frame;
     }
@@ -6602,14 +6795,14 @@ static bool finish_color_frame_impl(std::uint64_t vblank) noexcept {
                 VK_SUCCESS) {
             s.enabled = false;
             s.report.message = "vertex buffer growth failed; reverted to software GE";
-            s.frame_buckets.clear();
+            clear_frame_buckets(s);
         s.cloud_cameras.clear();
             return produced_frame;
         }
         s.vertex_capacity = capacity;
         s.report.upload_capacity_bytes = capacity;
         ++s.report.game_vertex_overflows;
-        s.frame_buckets.clear();
+        clear_frame_buckets(s);
         s.cloud_cameras.clear();
         return produced_frame;
     }
@@ -6654,7 +6847,7 @@ static bool finish_color_frame_impl(std::uint64_t vblank) noexcept {
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     if (vkBeginCommandBuffer(s.command_buffer, &begin) != VK_SUCCESS) {
-        s.frame_buckets.clear();
+        clear_frame_buckets(s);
         s.cloud_cameras.clear();
         return produced_frame;
     }
@@ -7175,7 +7368,7 @@ static bool finish_color_frame_impl(std::uint64_t vblank) noexcept {
     }
 
     if (vkEndCommandBuffer(s.command_buffer) != VK_SUCCESS) {
-        s.frame_buckets.clear();
+        clear_frame_buckets(s);
         s.cloud_cameras.clear();
         return produced_frame;
     }
@@ -7198,13 +7391,16 @@ static bool finish_color_frame_impl(std::uint64_t vblank) noexcept {
     flush_uploads(s);  // this frame's new textures must be on the queue ahead of its draws
     vkResetFences(s.device, 1, &s.fence);
     if (vkQueueSubmit(s.graphics_queue, 1, &submit, s.fence) == VK_SUCCESS) {
+#if defined(VCSNX)
+        frame_submit_time() = std::chrono::steady_clock::now();
+#endif
         ++s.report.perf_queue_submit_calls;
         s.submission_pending = true;
         s.pending_vblank = vblank;
         s.pending_target_address = winner->address;
     }
 
-    s.frame_buckets.clear();
+    clear_frame_buckets(s);
     s.cloud_cameras.clear();
     return produced_frame;
 }
@@ -7496,6 +7692,18 @@ void ge_gpu_backend_mark_window_presented() noexcept {
 }
 
 GeGpuBackendReport ge_gpu_backend_report() { return state().report; }
+
+#if defined(VCSNX)
+} // namespace vcs
+namespace vcsnx {
+// ge_slow_log.hpp: three counters, without copying the whole report (its message string allocates).
+GeBackendCounters ge_backend_counters() noexcept {
+    const vcs::GeGpuBackendReport &report = vcs::state().report;
+    return {report.decoded_texture_uploads, report.texture_cache_evictions, report.perf_upload_flush_wait_ns};
+}
+} // namespace vcsnx
+namespace vcs {
+#endif
 
 const char *ge_gpu_backend_name(GeGpuBackendKind kind) noexcept {
     switch (kind) {

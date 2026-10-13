@@ -1,7 +1,10 @@
 // Switch-only startup (spec §5, §7): nxlink stdio, diagnostics defaults, optional vcsnx_env.txt,
 // and the pre-main checks that stop with a readable message instead of a silent exit.
 
+#include "alloc_diag.hpp"
 #include "cpu_clock.hpp"
+#include "ram_files.hpp"
+#include "crash_log.hpp"
 #include "log_files.hpp"
 #include "memory_usage.hpp"
 #include "memory_watch.hpp"
@@ -92,6 +95,8 @@ struct StartupChecks {
         const std::string data = vcsnx::data_directory();
         for (const auto &[key, value] : vcsnx::parse_env_lines(read_text_file(data + "/vcsnx_env.txt")))
             setenv(key.c_str(), value.c_str(), 1);
+        vcsnx::set_alloc_diag(std::getenv("VCSNX_ALLOC_DIAG")); // heap census (alloc_diag.hpp), off by default
+        vcsnx::set_block_cache(std::getenv("VCSNX_BLOCK_CACHE")); // big-block reuse (block_cache.hpp), on by default
 #if defined(VCSNX_GPU_VULKAN)
         constexpr bool kVulkanBackend = true;
 #else
@@ -125,6 +130,12 @@ struct StartupChecks {
             }
             const std::string movies = paths.game_root.string() + "/PSP_GAME/USRDIR/RUNDATA/PSP/MOVIES/";
             facts.boot_movies_present = file_exists(movies + "LOGO.PMF") && file_exists(movies + "TITLES.PMF");
+            // The city's streaming archives into RAM in the background (ram_files.hpp); VCSNX_RAM_STREAMING=0
+            // keeps reading them from the SD.
+            if (vcsnx::ram_streaming_enabled(std::getenv("VCSNX_RAM_STREAMING"))) {
+                const std::filesystem::path rundata = paths.game_root / "PSP_GAME" / "USRDIR" / "RUNDATA";
+                vcsnx::ram_files().start({rundata / "MAINLA.IMG", rundata / "BEACH.IMG", rundata / "GTA3PSP.IMG"});
+            }
         } catch (const std::exception &) {
             facts.executable = vcsnx::ExecutableState::Missing;
         }
@@ -146,6 +157,7 @@ struct StartupChecks {
         }
         vcsnx::log_memory_layout();
 #if defined(VCSNX_GAME_MODULE)
+        vcsnx::set_crash_log_context(data.c_str(), game_module_base, game_module_size); // vcsnx_crash.log
         std::fprintf(stderr, "[vcsnx-module] vcs_game.so base=0x%llx size=%llu KiB\n",
                      static_cast<unsigned long long>(game_module_base), static_cast<unsigned long long>(game_module_size >> 10));
 #endif

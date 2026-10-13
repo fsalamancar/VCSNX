@@ -49,9 +49,18 @@
 #include <vector>
 #include "vcs_env.hpp"
 #if defined(VCSNX)
+#include "frame_limiter.hpp"
+#include "ge_slow_log.hpp"
+#include "ge_timeline.hpp"
 #include "gpu_frame_hold.hpp"
+#include "guest_io.hpp"
+#include "ram_files.hpp"
 #include "hw_verify.hpp"
 #include "vcsnx_hooks.hpp"
+// VCSNX: VCSNX_GE_TIMELINE_EVERY event marks (platform/switch/ge_timeline.hpp); nothing when it is unset.
+#define VCSNX_GE_TL(...) vcsnx::ge_timeline().note(__VA_ARGS__)
+#else
+#define VCSNX_GE_TL(...) ((void)0)
 #endif
 
 namespace psprecomp {
@@ -670,6 +679,16 @@ std::size_t read_virtual_disc(VirtualDiscHandle &handle, std::span<std::uint8_t>
             const std::size_t chunk = static_cast<std::size_t>(std::min<std::uint64_t>(
                 requested - written, file->size - file_offset));
 
+#if defined(VCSNX)
+            // VCSNX: the city's archives may be in RAM already (platform/switch/ram_files.hpp).
+            if (const auto ram = vcsnx::ram_files().find(file->native_path);
+                !ram.empty() && file_offset + chunk <= ram.size()) {
+                std::memcpy(output.data() + written, ram.data() + file_offset, chunk);
+                written += chunk;
+                disc_read_stats.bytes_from_files += chunk;
+                continue;
+            }
+#endif
             // Reuse one host handle per registered disc file. Most world-stream
             // requests are sequential, so retain the native stream position too
             // and skip seekg() when the next chunk starts where the previous one
@@ -701,9 +720,15 @@ std::size_t read_virtual_disc(VirtualDiscHandle &handle, std::span<std::uint8_t>
                 cached.position = file_offset;
                 cached.position_valid = true;
             }
+#if defined(VCSNX)
+            // VCSNX: through a private buffer; the FS read must not borrow the game's own pages
+            // (platform/switch/guest_io.hpp).
+            const std::size_t actual = vcsnx::read_into_guest(cached.input, output.data() + written, chunk);
+#else
             cached.input.read(reinterpret_cast<char *>(output.data() + written),
                               static_cast<std::streamsize>(chunk));
             const auto actual = static_cast<std::size_t>(cached.input.gcount());
+#endif
             cached.position += actual;
             cached.position_valid = true;
             written += actual;
@@ -4550,6 +4575,10 @@ void limit_frame_rate() {
 
     const auto target = wall_anchor + std::chrono::microseconds(virtual_time_us - guest_anchor);
     const auto now = std::chrono::steady_clock::now();
+#if defined(VCSNX)
+    // VCSNX: no sleep right after a late vblank (platform/switch/frame_limiter.hpp).
+    static vcsnx::LimiterBurst burst;
+#endif
     if (now >= target) {
         // The selected rate is a ceiling, not a promise that this renderer can
         // finish inside the budget. When it misses, advance guest time by the
@@ -4606,8 +4635,16 @@ void limit_frame_rate() {
         }
         wall_anchor = now;
         guest_anchor = virtual_time_us;
+#if defined(VCSNX)
+        burst.note(true);
+#endif
         return;
     }
+#if defined(VCSNX)
+    const bool may_sleep = burst.may_sleep();
+    burst.note(false);
+    if (!may_sleep) return;
+#endif
     // Sleep the bulk, spin the tail: a plain sleep_until overshoots by up to a
     // scheduler tick, which at 60 Hz is most of a frame.
     constexpr auto spin_margin = std::chrono::microseconds(1500);
@@ -5095,9 +5132,43 @@ void ge_async_worker_main() {
         // once per vblank -- see the lock around that call site). See
         // ge_gpu_backend_lock()'s comment in ge_gpu_backend.hpp for why this
         // is required, not optional, once this worker thread exists.
+        VCSNX_GE_TL('s', task.id);
         ge_gpu_backend_lock();
+#if defined(VCSNX)
+        // VCSNX: a list of 50 ms or more is logged with what the backend did in it (ge_slow_log.hpp).
+        const auto list_begin = std::chrono::steady_clock::now();
+        const vcsnx::PipelineStats pipelines_before = vcsnx::pipeline_stats();
+        const vcsnx::GeBackendCounters counters_before = vcsnx::ge_backend_counters();
+        const vcsnx::TextureTimes textures_before = vcsnx::texture_times();
+#endif
         const bool ok = execute_ge_list(*runtime, local, callbacks, task.stall.get());
+#if defined(VCSNX)
+        {
+            const auto list_us = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - list_begin).count());
+            if (vcsnx::is_slow_list(list_us)) {
+                const vcsnx::PipelineStats pipelines_after = vcsnx::pipeline_stats();
+                const vcsnx::GeBackendCounters counters_after = vcsnx::ge_backend_counters();
+                vcsnx::SlowListWork work;
+                work.list_us = list_us;
+                work.pipelines = pipelines_after.count - pipelines_before.count;
+                work.pipeline_us = pipelines_after.total_us - pipelines_before.total_us;
+                work.texture_uploads = counters_after.texture_uploads - counters_before.texture_uploads;
+                work.evictions = counters_after.evictions - counters_before.evictions;
+                work.flush_wait_us = (counters_after.flush_wait_ns - counters_before.flush_wait_ns) / 1000u;
+                const vcsnx::TextureTimes textures_after = vcsnx::texture_times();
+                work.texture_us = (textures_after.block_ns - textures_before.block_ns) / 1000u;
+                work.decode_us = (textures_after.decode_ns - textures_before.decode_ns) / 1000u;
+                work.alloc_us = (textures_after.alloc_ns - textures_before.alloc_ns) / 1000u;
+                work.objects_us = (textures_after.objects_ns - textures_before.objects_ns) / 1000u;
+                char line[256];
+                const std::size_t length = vcsnx::format_slow_list(work, line, sizeof line);
+                std::cerr << std::string_view(line, length) << '\n';
+            }
+        }
+#endif
         ge_gpu_backend_unlock();
+        VCSNX_GE_TL('e', task.id);
 
         {
             std::lock_guard lock(ge_async.mutex);
@@ -5176,6 +5247,7 @@ bool ge_async_wait_idle(psprecomp::Runtime &runtime) {
         return ge_async_check_fatal(runtime);
     }
     const auto begin = std::chrono::steady_clock::now();
+    VCSNX_GE_TL('w', ge_async.outstanding.load(std::memory_order_acquire));
     {
         std::unique_lock lock(ge_async.mutex);
         ++ge_async.wait_calls;
@@ -5183,6 +5255,7 @@ bool ge_async_wait_idle(psprecomp::Runtime &runtime) {
             return ge_async.outstanding.load(std::memory_order_acquire) == 0u;
         });
         const auto elapsed = std::chrono::steady_clock::now() - begin;
+        VCSNX_GE_TL('x', 0u, std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count());
         ge_async.wait_time += elapsed;
         ge_async.last_wait_ns.store(
             static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count()),
@@ -5196,6 +5269,7 @@ bool ge_async_wait_idle(psprecomp::Runtime &runtime) {
 bool ge_async_wait_list(psprecomp::Runtime &runtime, std::uint32_t id) {
     if (!ge_async_enabled() || !ge_async.started.load(std::memory_order_acquire)) return true;
     const auto begin = std::chrono::steady_clock::now();
+    VCSNX_GE_TL('W', id);
     {
         std::unique_lock lock(ge_async.mutex);
         ++ge_async.wait_calls;
@@ -5207,6 +5281,7 @@ bool ge_async_wait_list(psprecomp::Runtime &runtime, std::uint32_t id) {
         });
         ge_async.wait_time += std::chrono::steady_clock::now() - begin;
     }
+    VCSNX_GE_TL('X', id, std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - begin).count());
     runtime.memory().memory_barrier();
     ge_async_drain_completions();
     return ge_async_check_fatal(runtime);
@@ -5228,6 +5303,7 @@ std::uint32_t allocate_ge_list_id() {
 
 
 void enqueue_ge_display_list(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, bool head) {
+    VCSNX_GE_TL('q', ctx.gpr[4]);
     const std::uint32_t list_address = ctx.gpr[4] & 0x0FFFFFFFu;
     const std::uint32_t stall_address = ctx.gpr[5] & 0x0FFFFFFFu;
     const std::int32_t callback_id = static_cast<std::int32_t>(ctx.gpr[6]);
@@ -7083,6 +7159,7 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
                 return;
             }
             const std::uint32_t new_stall = ctx.gpr[5] & 0x0FFFFFFFu;
+            VCSNX_GE_TL('u', id);
             if (ge_async_running()) {
                 ge_async_start_worker(rt);
                 bool resumed = false;
@@ -7384,7 +7461,12 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
         // The display consumes the completed GE frame.  This is a real PSP
         // visibility boundary: allow guest/GE overlap during the frame, then
         // wait only here before framebuffer presentation and vblank callbacks.
+#if defined(VCSNX)
+        for (const std::string &line : vcsnx::ge_timeline().vblank(display_vblank_index + 1u)) std::cerr << line << '\n';
+        VCSNX_GE_TL('V', static_cast<std::uint32_t>(display_vblank_index + 1u));
+#endif
         if (!ge_async_wait_idle(rt)) return;
+        VCSNX_GE_TL('A');
         ++display_vblank_index;
         vcs::vcs_camera_begin_frame();
         vcs::audio_output_advance(virtual_time_us);
@@ -7520,6 +7602,7 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
             io_host_time_this_vblank = std::chrono::steady_clock::duration{};
             frame_time_stats.ge_calls = 0u;
         }
+        VCSNX_GE_TL('d');
         const FramebufferDescription displayed{
             display_state.frame_buffer,
             display_state.width,
@@ -7536,6 +7619,7 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
         // a single in-flight command buffer/fence and unsynchronized
         // pipeline/texture caches -- with nothing else protecting it.
         ge_gpu_backend_lock();
+        VCSNX_GE_TL('k');
         ge_gpu_backend_set_display_framebuffer(display_state.frame_buffer);
         // Display.ShowFPS: fps_overlay_render_frame()/fps_overlay_observe_draw()
         // (ge_renderer.cpp's two accumulate_color_triangles call sites) were
@@ -7623,6 +7707,7 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
                 if (clock_hour < 24u && clock_minute < 60u) publish_game_clock(clock_hour, clock_minute);
             }
         }
+        VCSNX_GE_TL('r');
         project2dfx_render_frame(
             rt.memory(), ctx.gpr[28], display_vblank_index, display_state.frame_buffer);
         // A movie frame is a finished 480x272 picture with no more image at the
@@ -7633,7 +7718,9 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
             movie_output_buffers.count(normalize_ram_address(display_state.frame_buffer)) != 0u);
         const auto present_entry = frame_time_diag_enabled()
             ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+        VCSNX_GE_TL('F');
         const bool gpu_frame_ready = ge_gpu_backend_finish_color_frame(display_vblank_index);
+        VCSNX_GE_TL('f', gpu_frame_ready ? 1u : 0u);
         // Counts toward Display.ShowFPS's measured rate only when this vblank
         // actually produced a new frame -- see fps_overlay_note_presented_
         // frame()'s comment for why counting every vblank tick instead read
@@ -7686,6 +7773,7 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
             }
         }
         ge_gpu_backend_unlock();
+        VCSNX_GE_TL('P');
         if (!presented_gpu_frame) {
             holding_gpu_frame = false;
             // The window is showing the guest framebuffer that the software GE
@@ -7732,6 +7820,7 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
             std::this_thread::sleep_for(std::chrono::microseconds(debug_vblank_sleep_us));
 #endif
         limit_frame_rate();
+        VCSNX_GE_TL('L');
         if (display_window_close_requested()) {
             ctx.set_gpr(2, 0u);
             rt.stop("Display window closed by the user");
@@ -10076,9 +10165,13 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
             const bool time_io = frame_time_diag_enabled();
             const auto io_entry = time_io ? std::chrono::steady_clock::now()
                                           : std::chrono::steady_clock::time_point{};
+#if defined(VCSNX)
+            const std::size_t read = vcsnx::read_into_guest(it->second, guest_destination, size); // guest_io.hpp
+#else
             it->second.read(reinterpret_cast<char *>(guest_destination),
                             static_cast<std::streamsize>(size));
             const auto read = static_cast<std::size_t>(it->second.gcount());
+#endif
             if (time_io) io_host_time_this_vblank += std::chrono::steady_clock::now() - io_entry;
             ctx.set_gpr(2, static_cast<std::uint32_t>(read));
         });

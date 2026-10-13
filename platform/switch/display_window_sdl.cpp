@@ -10,6 +10,10 @@
 #include "boot_splash_sdl.hpp"
 #endif
 #include "cpu_clock.hpp"
+#include "alloc_diag.hpp"
+#include "main_watchdog.hpp"
+#include "hud_scale.hpp"
+#include "hw_verify.hpp"
 #include "pad_mapping.hpp"
 #include "pad_source.hpp"
 #include "present_math.hpp"
@@ -47,6 +51,7 @@ struct WindowState {
     std::uint32_t pixel_format{SDL_PIXELFORMAT_RGB888};
     std::uint32_t width{};
     std::uint32_t height{};
+    vcsnx::Rect source{};  // the part of the frame shown, empty for all of it (vcsnx::menu_source)
     std::string pending_title;
     std::atomic<bool> frame_pending{false};
     std::atomic<bool> ready{false};
@@ -122,11 +127,12 @@ void destroy_window(WindowState &state) {
 // `format` is the SDL pixel format of the words: RGB888 (0x00RRGGBB) for guest framebuffers, ABGR8888
 // (RGBA bytes) for GPU frames.
 void publish_pixels(WindowState &state, std::vector<std::uint32_t> &pixels, std::uint32_t width,
-                    std::uint32_t height, std::uint32_t format) {
+                    std::uint32_t height, std::uint32_t format, vcsnx::Rect source = {}) {
     std::lock_guard<std::mutex> guard(state.mutex);
     std::swap(state.pixels, pixels);
     state.width = width;
     state.height = height;
+    state.source = source;
     state.pixel_format = format;
     state.frame_pending.store(true, std::memory_order_release);
 }
@@ -136,12 +142,14 @@ void present_pending_frame(WindowState &state) {
     std::uint32_t width = 0u;
     std::uint32_t height = 0u;
     std::uint32_t format = SDL_PIXELFORMAT_RGB888;
+    vcsnx::Rect source{};
     {
         std::lock_guard<std::mutex> guard(state.mutex);
         std::swap(state.upload, state.pixels);
         width = state.width;
         height = state.height;
         format = state.pixel_format;
+        source = state.source;
     }
     if (width == 0u || height == 0u || state.upload.size() < std::size_t{width} * height) return;
     const int texture_width = static_cast<int>(width);
@@ -167,8 +175,11 @@ void present_pending_frame(WindowState &state) {
     const SDL_Rect destination{box.x, box.y, box.w, box.h};
     SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 255);
     SDL_RenderClear(state.renderer);
-    SDL_RenderCopy(state.renderer, state.texture, nullptr, &destination);
+    // A menu: its 480 x 272 part of the frame fills the same box (vcsnx::menu_source).
+    const SDL_Rect part{source.x, source.y, source.w, source.h};
+    SDL_RenderCopy(state.renderer, state.texture, source.w > 0 && source.h > 0 ? &part : nullptr, &destination);
     SDL_RenderPresent(state.renderer);
+    vcsnx::note_main_present(trace_ms()); // main_watchdog.hpp
 }
 
 } // namespace
@@ -205,6 +216,7 @@ void display_window_set_status(const char *status) {
         last_trace_ms = now;
         std::cerr << "[vcsnx-status] t=" << now << "ms " << status << "\n";
         vcsnx::reapply_cpu_clock_boost(); // docking or a performance-mode change resets the clock
+        vcsnx::alloc_diag_tick(now);      // VCSNX_ALLOC_DIAG: heap census every ~10 s
     }
 #endif
 }
@@ -240,7 +252,14 @@ void display_window_present_rgba(std::span<const std::byte> rgba, std::uint32_t 
     if (rgba.size() < pixel_count * 4u) return;
     static thread_local std::vector<std::uint32_t> packed;
     vcsnx::copy_rgba_to_abgr8888(rgba, pixel_count, packed); // no per-pixel swizzle on the guest thread
-    publish_pixels(state, packed, width, height, SDL_PIXELFORMAT_ABGR8888);
+    vcsnx::alloc_diag_tick(trace_ms()); // VCSNX_ALLOC_DIAG: every ~10 s of frames (the status heartbeat is rare)
+    vcsnx::check_main_thread(trace_ms()); // a main thread that stopped presenting is logged (main_watchdog.hpp)
+    vcsnx::Rect source{};
+    if (vcsnx::menu_shown().shown(trace_ms())) {
+        const auto [logical_width, logical_height] = vcsnx::hw_verify_frame_extent();
+        source = vcsnx::menu_source(width, height, logical_width, logical_height);
+    }
+    publish_pixels(state, packed, width, height, SDL_PIXELFORMAT_ABGR8888, source);
 }
 
 DisplayWindowSurface display_window_surface() { return {}; }
