@@ -25,8 +25,7 @@
 
 - A Nintendo Switch that runs homebrew (Atmosphère with hbmenu).
 - A Windows 10 or 11 PC (64-bit), with internet the first time and about 5 GB free.
-- **The PC port of GTA: Vice City Stories**
-  ([VCSNative](https://github.com/OverkillLabs3/vice-city-stories-recomp)) **set up with your own copy**:
+- **The PC port of GTA: Vice City Stories (VCSNative) set up with your own copy**:
   VCSNX uses its same `PSP_DATA` folder, with the decrypted executable
   `PSP_GAME\SYSDIR\EBOOT_DECRYPTED.ELF` and `PSP_GAME\USRDIR`. Prepare it as that port explains; if
   VCSNative already runs on your PC, the folder is ready.
@@ -197,8 +196,7 @@ del juego se recompila para la Switch, en tu PC, con tu propia copia.</p>
 
 - Una Nintendo Switch con homebrew (Atmosphère con hbmenu).
 - Un PC con Windows 10 u 11 de 64 bits, con internet la primera vez y unos 5 GB libres.
-- **El port de PC de GTA: Vice City Stories**
-  ([VCSNative](https://github.com/OverkillLabs3/vice-city-stories-recomp)) **armado con tu propia copia**:
+- **El port de PC de GTA: Vice City Stories (VCSNative) armado con tu propia copia**:
   VCSNX usa su misma carpeta `PSP_DATA`, con el ejecutable desencriptado
   `PSP_GAME\SYSDIR\EBOOT_DECRYPTED.ELF` y `PSP_GAME\USRDIR`. Prepárala como explica ese port; si VCSNative
   ya funciona en tu PC, la carpeta está lista.
