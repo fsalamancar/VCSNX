@@ -1,6 +1,6 @@
-# Third-party software in VCSNX 0.1.0
+# Third-party software in VCSNX 0.3.0
 
-## In VCSNX-Builder-0.1.0.zip
+## In VCSNX-Builder-0.3.0.zip
 
 | Component | Version | License | Source |
 |---|---|---|---|

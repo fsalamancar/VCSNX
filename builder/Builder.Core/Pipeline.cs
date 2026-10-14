@@ -5,8 +5,8 @@ namespace Vcsnx.Builder.Core;
 public enum Stage { Checking, Downloading, Compiling, Linking, Packaging, CopyingToSd, Done }
 
 public sealed record BuildProgress(Stage Stage, int Done, int Total, TimeSpan? Remaining);
-public sealed record BuildRequest(string GameFolder, string? IconImage, string? SdRoot, string? CorpusZip = null);
-public sealed record BuildResult(string Module, string Nro, CopyReport? Sd);
+public sealed record BuildRequest(string GameFolder, string? IconImage, string? SdRoot, string? CorpusZip = null, string? HdFolder = null);
+public sealed record BuildResult(string Module, string Nro, CopyReport? Sd, HdCopy? Hd = null);
 
 public sealed record BuildPaths(string Toolchain, string Kit, string Hashes, string Work, string Output)
 {
@@ -16,7 +16,7 @@ public sealed record BuildPaths(string Toolchain, string Kit, string Hashes, str
 }
 
 /// <summary>Check → download the translated code → compile → link vcs_game.so → vcsnx.nro (with the player's
-/// icon) → SD card (spec §4).</summary>
+/// icon) → SD card (spec §4), with the player's HD textures and movies if they picked a folder (HdFolder).</summary>
 public sealed class Pipeline(BuildPaths paths, HttpClient http, IProcessRunner runner, int cores, long memoryBytes, Func<string, long> freeSpace)
 {
     public const long RequiredSpace = 3L << 30;
@@ -36,6 +36,8 @@ public sealed class Pipeline(BuildPaths paths, HttpClient http, IProcessRunner r
                 _ => "GameUnknown",
             });
         log.WriteLine($"game: {game.Executable} ({game.DiscVersion})");
+        HdSource? hdSource = null;
+        if (request.HdFolder is { } chosen) hdSource = HdFolder.Find(chosen) ?? throw new BuilderException("HdFolderEmpty", chosen);
         Directory.CreateDirectory(paths.Work);
         Directory.CreateDirectory(paths.Output);
         var free = freeSpace(paths.Work);
@@ -78,12 +80,16 @@ public sealed class Pipeline(BuildPaths paths, HttpClient http, IProcessRunner r
         }
 
         CopyReport? sd = null;
+        HdCopy? hd = null;
+        CopyReport menus;
         if (request.SdRoot is { } sdRoot)
         {
             progress.Report(new BuildProgress(Stage.CopyingToSd, 0, 0, null));
             try
             {
                 sd = SdCard.Install(sdRoot, nro, module, kit.Ini, game.DataRoot!, null, ct);
+                if (hdSource is not null) hd = HdFolder.CopyTo(hdSource, SdCard.GameFolder(sdRoot), ct);
+                menus = HdFolder.CopyTextures(kit.Textures, SdCard.GameFolder(sdRoot), ct);  // after the HD folder: ours win
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
@@ -91,8 +97,17 @@ public sealed class Pipeline(BuildPaths paths, HttpClient http, IProcessRunner r
             }
             log.WriteLine($"SD: {sd.Copied} copied, {sd.Skipped} already there");
         }
+        else
+        {
+            if (hdSource is not null) hd = HdFolder.CopyTo(hdSource, paths.Output, ct);  // salida\Textures, next to the nro
+            menus = HdFolder.CopyTextures(kit.Textures, paths.Output, ct);
+        }
+        log.WriteLine($"menu pictures: {menus.Copied} copied, {menus.Skipped} already there");
+        if (hd is not null)
+            log.WriteLine($"HD from {request.HdFolder}: textures {hd.Textures.Copied} copied, {hd.Textures.Skipped} already there; " +
+                          $"movies {hd.Movies.Copied} copied, {hd.Movies.Skipped} already there");
         progress.Report(new BuildProgress(Stage.Done, 0, 0, TimeSpan.Zero));
-        return new BuildResult(module, nro, sd);
+        return new BuildResult(module, nro, sd, hd);
     }
 
     async Task FetchCorpusAsync(Corpus corpus, string? localZip, TextWriter log, CancellationToken ct)

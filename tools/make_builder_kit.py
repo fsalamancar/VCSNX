@@ -1,7 +1,7 @@
 """Builds the VCSNX Builder's kit from the split Switch build (spec §3): the exact compile line of the
 translated code and link line of vcs_game.so (with placeholders), the module's own entry objects, the
-headers the translated code includes, the interface fingerprint, and the runtime vcsnx.nro the Builder puts
-the player's icon into. Nothing in the kit comes from the game.
+headers the translated code includes, the interface fingerprint, the runtime vcsnx.nro the Builder puts
+the player's icon into, and VCSNX's own menu pictures (Textures/). Nothing in the kit comes from the game.
 Usage: python3 -I tools/make_builder_kit.py <build/switch> <repo> <output kit folder>
 """
 import json
@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from module_abi import abi_of, generated_dependencies  # noqa: E402
+from make_switch_textures import write_textures  # noqa: E402
 
 DKP = "/opt/devkitpro"
 GXX = f"{DKP}/devkitA64/bin/aarch64-none-elf-g++"
@@ -77,6 +78,12 @@ def module_link_template(args: list[str]) -> tuple[list[str], list[tuple[str, st
     return out, objects, order
 
 
+def add_switch_textures(kit: Path) -> list[str]:
+    """VCSNX's own pictures for the game's menus (Settings > Controls, the menu legend's A and B), drawn by
+    tools/make_switch_textures.py from assets/controls; the Builder copies kit/Textures to switch/vcsnx/Textures."""
+    return sorted(f"{name}.png" for name in write_textures(kit / "Textures"))
+
+
 def main() -> int:
     if len(sys.argv) != 4:
         print("usage: make_builder_kit.py <build/switch> <repo> <output kit folder>", file=sys.stderr)
@@ -114,8 +121,10 @@ def main() -> int:
     (kit / "kit.json").write_text(json.dumps({"version": version, "gcc": gcc, "abi": abi}, indent=1))
     shutil.copy2(build / "vcsnx.nro", kit / "vcsnx.nro")
     shutil.copy2(repo / "config" / "VCSNative.ini", kit / "VCSNative.ini")
+    textures = add_switch_textures(kit)
     size = sum(p.stat().st_size for p in kit.rglob("*") if p.is_file()) // (1 << 20)
-    print(f"kit: {len(order)} translated units to build, {len(objects)} module objects, {len(headers)} headers, abi {abi[:12]}, {size} MiB")
+    print(f"kit: {len(order)} translated units to build, {len(objects)} module objects, {len(headers)} headers, "
+          f"{len(textures)} textures, abi {abi[:12]}, {size} MiB")
     return 0
 
 

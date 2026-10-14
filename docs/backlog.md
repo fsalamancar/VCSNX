@@ -8,7 +8,9 @@ Lista del autor (2026-10-12) para los próximos releases. No se toca antes del l
 2. Crash al entrar a una misión.
 3. ~~Al ir al ícono de guardar, la pantalla se quedó en negro y nunca cargó.~~ **Arreglado (2026-10-12, 984266f)**.
 4. Al cargar una partida, la imagen titila.
-5. Subtítulos grandes en las cinemáticas de las misiones, a veces mezclados.
+5. ~~Subtítulos grandes en las cinemáticas de las misiones, a veces mezclados.~~ **Arreglado (2026-10-14)**: las líneas
+   largas (más de 432 de 480 unidades) contaban como fondos y no se achicaban, los de las cinemáticas iban a la esquina y los
+   del medio de la pantalla no se tocaban (`platform/switch/hud_scale.cpp`, medido con `VCSNX_HUD_DIAG=1`).
 6. ~~Los colores de algunos carros se ven extraños y titilan.~~ **Arreglado (2026-10-13, 228b7ce)**: ver abajo.
 7. Al menú de pausa le falta relleno: se ve como si una parte estuviera en otra dimensión.
 14. Objetos que aparecen de golpe (pop-in): como es un juego de PSP, los objetos y los modelos detallados se
@@ -18,8 +20,10 @@ Lista del autor (2026-10-12) para los próximos releases. No se toca antes del l
     activarla.
 15. ~~Crash del hilo del GE leyendo la paleta de una textura (2026-10-13, dos veces en el día).~~ **Arreglo en
     prueba**: ver abajo.
-16. Pantalla de controles: el dibujo del control (el del PSP, con los nombres de la Switch encima) no le gusta
-    al autor. Usar la Switch en modo portátil de su imagen (`local/assets/switch_handheld_reference.png`; es del
+16. ~~Pantalla de controles: el dibujo del control (el del PSP, con los nombres de la Switch encima) no le gusta
+    al autor.~~ **Hecho (2026-10-14)**: VCSNX oculta ahí el dibujo, las líneas y los rótulos del juego y muestra la Switch
+    del autor con sus rótulos, a pie y en vehículo (`platform/switch/controls_screen.hpp`, `tools/make_switch_textures.py`).
+    Pedido original: Usar la Switch en modo portátil de su imagen (`local/assets/switch_handheld_reference.png`; es del
     autor, con licencia libre: puede ir en `assets/` y en el release) y rotular cada botón con lo que hace en VCSNX (`pad_mapping.cpp`:
     A = cruz, B = círculo, Y = cuadrado, X = triángulo, L/R, ZL/ZR en vehículo, + = START, − = SELECT).
 17. El sonido se escucha bien pero "sucio" (2026-10-13). Pista: en la sesión P1 el canal 8 descartó el 7,4 % de
@@ -72,6 +76,9 @@ otro núcleo, leía una paleta en esas mismas páginas. Ahora la lectura pasa po
 20. Rendimiento: el autor apunta a 60 fps. Orden acordado: 30 fps estables primero; después medir si 60
     (`[Timing] FrameRate=60`, que duplica el trabajo del juego y del GE por segundo) es alcanzable.
     Resolución en dock: se queda en 1280x720 (decisión del autor, 2026-10-13).
+21. Menú de opciones gráficas dentro del juego (pedido del autor, 2026-10-13, "en un futuro"): prender y apagar
+    desde un menú lo que hoy va en `VCSNative.ini` (texturas HD, FXAA, MSAA, nitidez, filtrado anisotrópico,
+    bloom, coronas de luz, color neón, detalle de texturas, intensidad del reflejo de los carros).
 
 ## Reflejos de los carros (bug 6, 2026-10-13)
 
@@ -89,11 +96,19 @@ Diagnóstico usado: `local/notes/uvgen_diag_v2.patch` (`VCSNX_UVGEN_DIAG=<carpet
 - ~~Menú de pausa / mapa con espacio a la derecha y abajo~~ **Arreglado (2026-10-13, 90193cd y a840f70)**:
   mientras el menú está en pantalla, la ventana muestra solo su parte de 480x272 del frame.
 - Quitar las ayudas "move / select / back" del menú.
-- Subtítulos: que se achiquen parejos (el anclaje por tercios de `hud_scale.cpp` los parte).
-- Artwork y barra de carga fijos (sin titileo).
-- El nombre de la zona que aparece abajo a la derecha al entrar a un lugar (p. ej. "'101 Bayshore Avenue'")
-  pegado a la esquina inferior derecha de la pantalla, como el HUD de arriba (pedido del autor, 2026-10-13;
-  foto en `local/photos/2026-10-13-zone-name.jpg`). Hoy queda separado del borde derecho e inferior.
+- ~~Subtítulos: que se achiquen parejos~~ **Arreglado (2026-10-14)**: ver el bug 5.
+- ~~Artwork y barra de carga fijos (sin titileo).~~ **Hecho (2026-10-14)**: VCSNX dibuja su propia pantalla de carga
+  mientras el juego muestra su artwork: el artwork en HD, otro cada 7 s, y una barra que avanza
+  (`platform/switch/loading_screen.hpp`).
+- Freno de mano en vehículo: en VCSNX la R mira a la derecha dentro del auto (`pad_mapping.cpp`), así que el "Hand brake"
+  del juego (la R del PSP) no tiene botón (2026-10-14).
+- ~~El nombre de la zona que aparece abajo a la derecha al entrar a un lugar (p. ej. "'101 Bayshore Avenue'")
+  pegado a la esquina inferior derecha de la pantalla, como el HUD de arriba~~ **Arreglado (2026-10-13)**: los
+  nombres largos tenían el centro en el tercio del medio y se achicaban hacia el centro de abajo con los
+  subtítulos (quedaban a 65 unidades del borde); ahora todo texto de abajo que llega al borde derecho va a la
+  esquina, con los márgenes del HUD de arriba (`platform/switch/hud_scale.cpp`, medidos en la foto
+  `local/photos/2026-10-13-zone-name.jpg`). Después (2026-10-14) el autor lo quiso en la línea del nombre del auto, 28
+  unidades más arriba.
 
 ## Mods (después del backlog normal)
 

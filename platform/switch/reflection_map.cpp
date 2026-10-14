@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 namespace vcsnx {
 namespace {
@@ -84,6 +85,35 @@ bool is_reflection_map_build(const ReflectionMapDraw &draw) noexcept {
 
 bool cpu_rasterizes_target(std::uint32_t stride) noexcept {
     return stride != 0u && stride <= kSmallTargetStride;
+}
+
+bool is_car_reflection_pass(const CarPassDraw &draw) noexcept {
+    constexpr std::uint32_t kVramMask = 0xFF000000u;
+    constexpr std::uint32_t kVram = 0x04000000u;
+    constexpr std::uint32_t kFixedFixedAdd = 0x0000AAu;  // source FIX, destination FIX, equation add
+    return (draw.uv_generation == 1u || draw.uv_generation == 2u) && (draw.texture_address & kVramMask) == kVram &&
+           draw.texture_buffer_width == kSmallTargetStride && (draw.blend_mode & 0x7FFu) == kFixedFixedAdd &&
+           draw.fix_source == 0x151515u && draw.fix_dest == 0xEAEAEAu;
+}
+
+ReflectionBlend car_reflection_blend(float strength) noexcept {
+    const auto source = static_cast<std::uint32_t>(std::lround(std::clamp(strength, 0.0f, 1.0f) * 255.0f));
+    const std::uint32_t dest = 255u - source;
+    return {source * 0x010101u, dest * 0x010101u};
+}
+
+float parse_car_reflection(const char *text) noexcept {
+    constexpr float kDefault = 0.20f;
+    if (text == nullptr || *text == '\0') return kDefault;
+    char *end = nullptr;
+    const float value = std::strtof(text, &end);
+    if (end == text || !std::isfinite(value)) return kDefault;
+    return std::clamp(value, 0.0f, 1.0f);
+}
+
+float car_reflection_strength() noexcept {
+    static const float strength = parse_car_reflection(std::getenv("VCSNX_CAR_REFLECTION"));
+    return strength;
 }
 
 } // namespace vcsnx

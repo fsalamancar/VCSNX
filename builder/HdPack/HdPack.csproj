@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The author's tool for HD texture folders (2026-10-13): the Builder no longer makes them, it copies a folder the
+       player picks. Not part of the Builder's zip. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Vcsnx.HdPack</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="Vcsnx.Builder.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Builder.Core\Builder.Core.csproj" />
+  </ItemGroup>
+
+</Project>

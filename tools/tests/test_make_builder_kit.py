@@ -1,10 +1,12 @@
 """Tests for tools/make_builder_kit.py (stdlib unittest). Run: python3 -I tools/tests/test_make_builder_kit.py"""
+import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from make_builder_kit import compile_template, module_link_template  # noqa: E402
+from make_builder_kit import add_switch_textures, compile_template, module_link_template  # noqa: E402
 
 REPO = "/Users/x/VCSNX"
 GXX = "/opt/devkitpro/devkitA64/bin/aarch64-none-elf-g++"
@@ -55,6 +57,17 @@ class MakeBuilderKitTest(unittest.TestCase):
         entry, eh_end = MODULE_LINK[-4], MODULE_LINK[-3]
         with self.assertRaises(SystemExit):
             module_link_template(MODULE_LINK[:-4] + [eh_end, entry] + MODULE_LINK[-2:])
+
+    def test_the_kit_carries_the_switch_controls_pictures_for_textures(self) -> None:
+        # The author, 2026-10-14: VCSNX's Settings > Controls picture goes to players inside the kit; the Builder
+        # copies kit/Textures to switch/vcsnx/Textures.
+        with tempfile.TemporaryDirectory() as folder:
+            kit = Path(folder)
+            names = add_switch_textures(kit)
+            self.assertEqual(len(names), 3)
+            self.assertIn("cc29539db154b0c7.png", names)
+            self.assertEqual(sorted(p.name for p in (kit / "Textures").iterdir()), sorted(names))
+            self.assertTrue(all(re.fullmatch(r"[0-9a-f]{16}\.png", n) for n in names))
 
 
 if __name__ == "__main__":

@@ -59,4 +59,26 @@ struct ReflectionMapDraw {
 // rest: targets at most 64 pixels wide (the reflection map) cost next to nothing and are sampled back.
 [[nodiscard]] bool cpu_rasterizes_target(std::uint32_t stride) noexcept;
 
+// The pass that puts the map on the cars' paint and glass (Mac [uvgen] log): environment-mapped UVs, the
+// 64-wide map in VRAM, fixed blend 0x15 / 0xEA, i.e. 8% reflection over 92% paint. The author wanted 20%
+// (2026-10-13); only this pass is changed.
+struct CarPassDraw {
+    std::uint32_t uv_generation{};        // GE 0xC0 & 3
+    std::uint32_t texture_address{};      // level 0
+    std::uint32_t texture_buffer_width{}; // GE 0xA8 & 0x7FF
+    std::uint32_t blend_mode{};           // GE 0xDF: factors and equation
+    std::uint32_t fix_source{}, fix_dest{};  // GE 0xE0 / 0xE1, 24-bit
+};
+[[nodiscard]] bool is_car_reflection_pass(const CarPassDraw &draw) noexcept;
+
+struct ReflectionBlend {
+    std::uint32_t source{}, dest{};  // 24-bit fixed blend colours
+};
+// The fixed factors for `strength` (0-1) of reflection: round(strength * 255) per channel and its complement.
+[[nodiscard]] ReflectionBlend car_reflection_blend(float strength) noexcept;
+// VCSNX_CAR_REFLECTION's value, 0-1 (0.08 is the game's own); 0.20 when unset or not a number.
+[[nodiscard]] float parse_car_reflection(const char *text) noexcept;
+// parse_car_reflection(getenv("VCSNX_CAR_REFLECTION")), read once.
+[[nodiscard]] float car_reflection_strength() noexcept;
+
 } // namespace vcsnx

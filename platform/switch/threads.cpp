@@ -55,6 +55,23 @@ int core_for_thread(ThreadRole role, unsigned index) noexcept {
     return 0;
 }
 
+ScopedThreadPriority::ScopedThreadPriority(int priority) noexcept {
+#if defined(__SWITCH__)
+    s32 current = -1;
+    if (R_SUCCEEDED(svcGetThreadPriority(&current, CUR_THREAD_HANDLE)) &&
+        R_SUCCEEDED(svcSetThreadPriority(CUR_THREAD_HANDLE, static_cast<u32>(priority))))
+        previous_ = current;
+#else
+    (void)priority;
+#endif
+}
+
+ScopedThreadPriority::~ScopedThreadPriority() {
+#if defined(__SWITCH__)
+    if (previous_ >= 0) svcSetThreadPriority(CUR_THREAD_HANDLE, static_cast<u32>(previous_));
+#endif
+}
+
 void pin_current_thread(ThreadRole role, unsigned index) noexcept {
 #if defined(__SWITCH__)
     const int core = core_for_thread(role, index);

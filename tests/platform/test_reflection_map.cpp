@@ -24,6 +24,18 @@ std::vector<std::uint8_t> frame(std::uint32_t w, std::uint32_t h, Pick pick) {
     return rgba;
 }
 
+// The pass the Mac [uvgen] log showed on every car: env-mapped, the 64-wide map, fixed 0x15 / 0xEA.
+vcsnx::CarPassDraw observed_car_pass() {
+    vcsnx::CarPassDraw draw;
+    draw.uv_generation = 2u;
+    draw.texture_address = 0x04044000u;
+    draw.texture_buffer_width = 64u;
+    draw.blend_mode = 0x0000AAu;
+    draw.fix_source = 0x151515u;
+    draw.fix_dest = 0xEAEAEAu;
+    return draw;
+}
+
 std::uint16_t rgb565(unsigned r, unsigned g, unsigned b) {
     return static_cast<std::uint16_t>((r >> 3u) | ((g >> 2u) << 5u) | ((b >> 3u) << 11u));
 }
@@ -158,6 +170,46 @@ int main() {
              require(vcsnx::cpu_rasterizes_target(64u), "the 64-wide reflection map");
              require(!vcsnx::cpu_rasterizes_target(512u), "the world and the display");
              require(!vcsnx::cpu_rasterizes_target(0u), "no stride");
+         }},
+        {"the cars' reflection pass is recognised", [] {
+             require(vcsnx::is_car_reflection_pass(observed_car_pass()), "observed pass on 0x04044000");
+             auto other_buffer = observed_car_pass();
+             other_buffer.texture_address = 0x04000000u;
+             require(vcsnx::is_car_reflection_pass(other_buffer), "the other back buffer");
+         }},
+        {"other blended draws are left alone", [] {
+             auto not_mapped = observed_car_pass();
+             not_mapped.uv_generation = 0u;
+             require(!vcsnx::is_car_reflection_pass(not_mapped), "UVs from the vertices");
+             auto lighter = observed_car_pass();
+             lighter.fix_source = 0x070707u;
+             lighter.fix_dest = 0xF8F8F8u;
+             require(!vcsnx::is_car_reflection_pass(lighter), "another fixed blend");
+             auto ram = observed_car_pass();
+             ram.texture_address = 0x096F1230u;
+             require(!vcsnx::is_car_reflection_pass(ram), "a texture in RAM");
+             auto wide = observed_car_pass();
+             wide.texture_buffer_width = 512u;
+             require(!vcsnx::is_car_reflection_pass(wide), "a full-size target");
+             auto alpha = observed_car_pass();
+             alpha.blend_mode = 0x000032u;
+             require(!vcsnx::is_car_reflection_pass(alpha), "alpha blending");
+         }},
+        {"the strength sets complementary fixed factors", [] {
+             const vcsnx::ReflectionBlend twenty = vcsnx::car_reflection_blend(0.20f);
+             require(twenty.source == 0x333333u && twenty.dest == 0xCCCCCCu, "20%: 0x33 / 0xCC");
+             const vcsnx::ReflectionBlend original = vcsnx::car_reflection_blend(0.08f);
+             require(original.source == 0x141414u && original.dest == 0xEBEBEBu, "8%: 0x14 / 0xEB");
+             const vcsnx::ReflectionBlend over = vcsnx::car_reflection_blend(3.0f);
+             require(over.source == 0xFFFFFFu && over.dest == 0u, "clamped to 1");
+             const vcsnx::ReflectionBlend under = vcsnx::car_reflection_blend(-1.0f);
+             require(under.source == 0u && under.dest == 0xFFFFFFu, "clamped to 0");
+         }},
+        {"the strength comes from VCSNX_CAR_REFLECTION, 0.20 otherwise", [] {
+             require(vcsnx::parse_car_reflection(nullptr) == 0.20f, "unset");
+             require(vcsnx::parse_car_reflection("0.08") == 0.08f, "the original");
+             require(vcsnx::parse_car_reflection("abc") == 0.20f, "not a number");
+             require(vcsnx::parse_car_reflection("1.5") == 1.0f, "above 1");
          }},
     });
 }

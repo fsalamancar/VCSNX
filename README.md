@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/fsalamancar/VCSNX/releases/download/v0.1.0/VCSNX-Builder-0.1.0.zip"><b>Builder (once)</b></a> ·
+  <a href="https://github.com/fsalamancar/VCSNX/releases/download/v0.3.0/VCSNX-Builder-0.3.0.zip"><b>Builder (once)</b></a> ·
   <a href="https://github.com/fsalamancar/VCSNX/releases/latest/download/vcsnx.nro"><b>vcsnx.nro (latest)</b></a> ·
   <a href="#install-step-by-step">Install</a> ·
   <a href="#controls">Controls</a> ·
@@ -34,7 +34,7 @@
 ## Install, step by step
 
 1. **Download the two parts:**
-   - **The Builder, once:** [`VCSNX-Builder-0.1.0.zip`](https://github.com/fsalamancar/VCSNX/releases/download/v0.1.0/VCSNX-Builder-0.1.0.zip). It does not change with updates.
+   - **The Builder, once:** [`VCSNX-Builder-0.3.0.zip`](https://github.com/fsalamancar/VCSNX/releases/download/v0.3.0/VCSNX-Builder-0.3.0.zip). A release brings a new one only when its notes say so.
    - **The runtime, always the newest:** [`vcsnx.nro`](https://github.com/fsalamancar/VCSNX/releases/latest/download/vcsnx.nro). This link always gives the latest one; it is the
      part that gets the fixes.
 2. **Unzip the Builder** to a folder without accents, for example `C:\VCSNX-Builder` (right-click → *Extract
@@ -46,12 +46,15 @@
    **✓ GTA Vice City Stories ULUS-10160 1.03**. If it shows a message instead, the message says what to do.
 5. **2. Icon (optional):** any PNG or JPG for the icon in hbmenu.
 6. **3. SD card (optional):** put the Switch's SD card in the PC and pick it in the list.
-7. **Click "Create vcs_game.so".** The first time it downloads the recompiled code and compiles it:
+7. **4. HD textures and movies (optional):** if you have an HD textures folder (files named like
+   `0123456789abcdef.png`, made from your own copy), pick it. The HD movies `LOGO.mp4` and `TITLES.mp4` can go in
+   the same folder. The Builder copies them to `Textures` and `HD`; without a folder the game uses its own textures.
+8. **Click "Create vcs_game.so".** The first time it downloads the recompiled code and compiles it:
    about **20–60 minutes**, depending on the PC. You can cancel; next time it carries on where it stopped.
-8. **Done.** If you picked the SD card, everything is already on it. If not, copy these to
-   `sdmc:/switch/vcsnx/` on the SD card: `salida\vcsnx.nro`, `salida\vcs_game.so`, `kit\VCSNative.ini`
-   and your `PSP_DATA` folder.
-9. **Play.** On the Switch, hold **R** while you open any game from the HOME menu: hbmenu opens with
+9. **Done.** If you picked the SD card, everything is already on it. If not, copy these to
+   `sdmc:/switch/vcsnx/` on the SD card: `salida\vcsnx.nro`, `salida\vcs_game.so`, `salida\Textures`,
+   `kit\VCSNative.ini`, your `PSP_DATA` folder and, if you picked HD movies, `salida\HD`.
+10. **Play.** On the Switch, hold **R** while you open any game from the HOME menu: hbmenu opens with
    the console's full memory. Open **VCSNX**.
 
 The SD card ends up like this:
@@ -61,12 +64,15 @@ sdmc:/switch/vcsnx/
 ├── vcsnx.nro        the runtime (from the release)
 ├── vcs_game.so      the game's code (made on your PC)
 ├── VCSNative.ini    settings
-└── PSP_DATA/        the game's files
+├── PSP_DATA/        the game's files
+├── Textures/        the Switch's controls in Settings → Controls, and your HD textures (optional)
+└── HD/              HD movies (optional, yours)
 ```
 
 **Updates:** only `vcsnx.nro` changes. Download it again from the same link ([`vcsnx.nro`](https://github.com/fsalamancar/VCSNX/releases/latest/download/vcsnx.nro)) and replace
-`sdmc:/switch/vcsnx/vcsnx.nro` on the SD card; the Builder and your `vcs_game.so` stay as they are. Only if
-VCSNX itself says that `vcs_game.so` must be made again does a release bring a new Builder, and its notes say so.
+`sdmc:/switch/vcsnx/vcsnx.nro` on the SD card; the Builder and your `vcs_game.so` stay as they are. A release
+brings a new Builder only when VCSNX says that `vcs_game.so` must be made again or the Builder gains an option (0.3.0:
+the HD folder), and its notes say so. Your `vcs_game.so` keeps working either way unless VCSNX says otherwise.
 
 ### If something goes wrong
 
@@ -151,8 +157,8 @@ The Builder's design is in `docs/superpowers/specs/2026-10-11-vcsnx-builder-desi
 `builder/` (.NET 10; `dotnet test builder/Builder.Core.Tests` runs on macOS).
 
 **Extras made from your own files** (not included):
-- Pro Controller pictures in the Controls menu: `python3 -I tools/make_switch_textures.py <folder>`, then
-  copy the PNGs to `sdmc:/switch/vcsnx/Textures/` and set `[Textures] Replacement=true`.
+- The Switch's controls in *Settings → Controls* (`assets/controls/switch_handheld.png` with VCSNX's labels):
+  `python3 -I tools/make_switch_textures.py <folder>`, then copy the PNGs to `sdmc:/switch/vcsnx/Textures/`.
 - Sharper HUD fonts: dump the originals with `DumpOriginals=true`, then run `tools/make_hd_hud.py`.
 - HOME menu icon: `tools/make_icon.py` cuts it from a cover image you provide (`local/icon.jpg`).
 
@@ -208,7 +214,7 @@ del juego se recompila para la Switch, en tu PC, con tu propia copia.</p>
 ### Instalación paso a paso
 
 1. **Baja las dos partes:**
-   - **El Builder, una sola vez:** [`VCSNX-Builder-0.1.0.zip`](https://github.com/fsalamancar/VCSNX/releases/download/v0.1.0/VCSNX-Builder-0.1.0.zip). No cambia con las actualizaciones.
+   - **El Builder, una sola vez:** [`VCSNX-Builder-0.3.0.zip`](https://github.com/fsalamancar/VCSNX/releases/download/v0.3.0/VCSNX-Builder-0.3.0.zip). Un release trae uno nuevo solo cuando sus notas lo dicen.
    - **El runtime, siempre el más nuevo:** [`vcsnx.nro`](https://github.com/fsalamancar/VCSNX/releases/latest/download/vcsnx.nro). Este enlace entrega siempre el último; es la parte
      que recibe los arreglos.
 2. **Descomprime el Builder** en una carpeta sin acentos, por ejemplo `C:\VCSNX-Builder` (clic derecho →
@@ -220,16 +226,21 @@ del juego se recompila para la Switch, en tu PC, con tu propia copia.</p>
    **✓ GTA Vice City Stories ULUS-10160 1.03**. Si sale un mensaje, el mensaje dice qué hacer.
 5. **2. Ícono (opcional):** cualquier PNG o JPG para el ícono en hbmenu.
 6. **3. SD de la Switch (opcional):** mete la SD de la Switch en el PC y elígela en la lista.
-7. **Pulsa "Crear vcs_game.so".** La primera vez baja el código recompilado y lo compila: unos
+7. **4. Texturas y videos HD (opcional):** si tienes una carpeta de texturas HD (archivos con nombres como
+   `0123456789abcdef.png`, hechos con tu propia copia), elígela. Los videos HD `LOGO.mp4` y `TITLES.mp4` pueden ir
+   en la misma carpeta. El Builder los copia a `Textures` y `HD`; sin carpeta, el juego usa sus propias texturas.
+8. **Pulsa "Crear vcs_game.so".** La primera vez baja el código recompilado y lo compila: unos
    **20–60 minutos**, según el PC. Puedes cancelar; la próxima vez sigue donde quedó.
-8. **Listo.** Si elegiste la SD, ya está todo en ella. Si no, copia a `sdmc:/switch/vcsnx/` en la SD:
-   `salida\vcsnx.nro`, `salida\vcs_game.so`, `kit\VCSNative.ini` y tu carpeta `PSP_DATA`.
-9. **A jugar.** En la Switch, mantén **R** mientras abres cualquier juego desde el menú HOME: se abre
+9. **Listo.** Si elegiste la SD, ya está todo en ella. Si no, copia a `sdmc:/switch/vcsnx/` en la SD:
+   `salida\vcsnx.nro`, `salida\vcs_game.so`, `salida\Textures`, `kit\VCSNative.ini`, tu carpeta `PSP_DATA` y, si
+   elegiste videos HD, `salida\HD`.
+10. **A jugar.** En la Switch, mantén **R** mientras abres cualquier juego desde el menú HOME: se abre
    hbmenu con toda la memoria de la consola. Abre **VCSNX**.
 
 **Actualizaciones:** solo cambia `vcsnx.nro`. Bájalo otra vez del mismo enlace ([`vcsnx.nro`](https://github.com/fsalamancar/VCSNX/releases/latest/download/vcsnx.nro)) y reemplaza
-`sdmc:/switch/vcsnx/vcsnx.nro` en la SD; el Builder y tu `vcs_game.so` se quedan como están. Solo si VCSNX mismo dice
-que hay que crear `vcs_game.so` de nuevo, un release trae un Builder nuevo, y sus notas lo dicen.
+`sdmc:/switch/vcsnx/vcsnx.nro` en la SD; el Builder y tu `vcs_game.so` se quedan como están. Un release trae un Builder
+nuevo solo cuando VCSNX dice que hay que crear `vcs_game.so` de nuevo o el Builder gana una opción (0.3.0: la carpeta
+HD), y sus notas lo dicen. Tu `vcs_game.so` sigue sirviendo salvo que VCSNX diga lo contrario.
 
 ### Si algo falla
 

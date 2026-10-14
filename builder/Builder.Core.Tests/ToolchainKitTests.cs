@@ -52,4 +52,16 @@ public sealed class ToolchainKitTests
         Assert.Equal("{toolchain}/libnx/include", kit.CompileTemplate[2]);
         Assert.True(File.Exists(kit.RuntimeNro));
     }
+
+    [Fact]
+    public void The_kits_menu_pictures_are_its_key_named_pngs()
+    {
+        var dir = Path.Combine(TestFiles.TempDir(), "kit");
+        var kit = MakeKit(dir, [], [], []);
+        Assert.Empty(kit.Textures);  // a kit without Textures\
+        TestFiles.Write(Path.Combine(dir, "Textures", "cc29539db154b0c7.png"), [1]);
+        TestFiles.Write(Path.Combine(dir, "Textures", "27b80d3a3bb72734.png"), [2]);
+        TestFiles.Write(Path.Combine(dir, "Textures", "notes.txt"), [3]);
+        Assert.Equal(new[] { "27b80d3a3bb72734.png", "cc29539db154b0c7.png" }, kit.Textures.Select(Path.GetFileName));
+    }
 }

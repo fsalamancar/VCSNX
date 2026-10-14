@@ -47,6 +47,9 @@
 #if defined(VCSNX)
 #include "ge_filters.hpp"
 #include "ge_slow_log.hpp"
+#include "controls_screen.hpp"
+#include "hud_diag.hpp"
+#include "loading_screen.hpp"
 #include "hud_scale.hpp"
 #include "hw_verify.hpp"
 #include "reflection_map.hpp"
@@ -4167,14 +4170,17 @@ vcsnx::HudGate &hud_gate() {
     static vcsnx::HudGate gate;
     return gate;
 }
-// VCSNX_HUD_DIAG=1: one stderr line each time the shrink turns on or off.
+// Whether the game is being played (the HUD gate: the world drawn at a gameplay rate, no menu up), for the GPU
+// backend: interface art goes up as its HD copy at once only outside play (vcsnx::hd_copy_at_upload).
+bool vcsnx_game_playing() noexcept { return hud_gate().on(vcsnx::trace_ms()); }
+
+// VCSNX_HUD_DIAG=1: one stderr line each time the shrink turns on or off (vcsnx::hud_diag_gate).
 bool hud_shrink_on(long long now_ms) {
     const bool on = hud_gate().on(now_ms);
-    static const bool diag = std::getenv("VCSNX_HUD_DIAG") != nullptr;
     static bool last = false;
-    if (diag && on != last) {
+    if (vcsnx::hud_diag_on() && on != last) {
         last = on;
-        std::cerr << "[hud-diag] t=" << now_ms << "ms shrink=" << (on ? "on" : "off") << "\n";
+        vcsnx::hud_diag_gate(now_ms, on);
     }
     return on;
 }
@@ -4380,6 +4386,21 @@ bool render_ge_primitive(psprecomp::GuestMemory &memory,
             gpu_draw.blend_equation = (blend_mode >> 8u) & 7u;
             gpu_draw.blend_fix_source = data24(commands[0xE0u]) & 0x00FFFFFFu;
             gpu_draw.blend_fix_dest = data24(commands[0xE1u]) & 0x00FFFFFFu;
+#if defined(VCSNX)
+            // VCSNX: the cars' reflection pass at the author's strength, 20% by default (reflection_map.hpp).
+            if (vcsnx::is_car_reflection_pass({data24(commands[0xC0u]) & 3u, texture_address(commands, 0u),
+                                               data24(commands[0xA8u]) & 0x7FFu, blend_mode,
+                                               gpu_draw.blend_fix_source, gpu_draw.blend_fix_dest})) {
+                const vcsnx::ReflectionBlend blend = vcsnx::car_reflection_blend(vcsnx::car_reflection_strength());
+                gpu_draw.blend_fix_source = blend.source;
+                gpu_draw.blend_fix_dest = blend.dest;
+                static bool logged = false;  // the GE worker only
+                if (!logged) {
+                    logged = true;
+                    std::cerr << "[car-reflection] strength " << vcsnx::car_reflection_strength() << '\n';
+                }
+            }
+#endif
             gpu_draw.color_write_mask = data24(commands[0xE8u]) |
                 ((data24(commands[0xE9u]) & 0xFFu) << 24u);
             const std::uint32_t alpha_test = data24(commands[0xDBu]);
@@ -4534,6 +4555,7 @@ bool render_ge_primitive(psprecomp::GuestMemory &memory,
     // menu is open (vcsnx::HudGate; the shrink is off while it is).
     if (!layout.through && (data24(commands[0xE7u]) & 1u) == 0u) {
         hud_gate().note_world_draw(vcsnx::trace_ms());
+        if (vcsnx::hud_diag_on()) vcsnx::hud_diag_world_draw(vcsnx::trace_ms());
         vcsnx::menu_shown().note_world_draw();  // a menu is gone from the first world draw
     }
     const std::uint32_t vcsnx_draw_target = data24(commands[0x9Cu]);
@@ -5227,17 +5249,55 @@ bool render_ge_primitive(psprecomp::GuestMemory &memory,
         // VCSNX: a smaller HUD ([Display] HudScale). Each interface draw moves toward its own edge or
         // corner (vcsnx::hud_shrink_for); the radar keeps its size, and menus
         // (no world drawn) are left alone.
+        const vcsnx::HudTexture vcsnx_texture =
+            gpu_draw.texture_enabled ? vcsnx::HudTexture{gpu_draw.texture_address, gpu_draw.texture_width,
+                                                         gpu_draw.texture_height, gpu_draw.texture_format}
+                                     : vcsnx::HudTexture{};
+        const bool vcsnx_text = vcsnx::hud_is_text(vcsnx_texture);
+        // VCSNX: Settings > Controls with VCSNX's own picture: the game's label lines and labels there are not drawn,
+        // and the picture (the author's Switch with VCSNX's labels) fills the band they took
+        // (platform/switch/controls_screen.hpp).
+        if (vcsnx_texture.address != 0u) {
+            float controls_min_y = vertices.front().y;
+            for (const Vertex &vertex : vertices) controls_min_y = std::min(controls_min_y, vertex.y);
+            const vcsnx::HudBox controls_box{min_x, controls_min_y, max_x, max_y};
+            const long long controls_now = vcsnx::trace_ms();
+            if (vcsnx::controls_screen().takes(controls_box, vcsnx_texture, controls_now)) {
+                for (Vertex &vertex : vertices) {
+                    const auto [x, y] = vcsnx::controls_panel_point(controls_box, vertex.x, vertex.y);
+                    vertex.x = x;
+                    vertex.y = y;
+                }
+            } else if (vcsnx::controls_screen().hides(controls_box, vcsnx_texture, controls_now)) {
+                advance_stream();
+                return true;
+            }
+        }
+        // VCSNX: the game draws its loading artwork: VCSNX's loading screen is up (platform/switch/loading_screen.hpp).
+        if (vcsnx_texture.width == vcsnx::kLoadingArtWidth && vcsnx_texture.height == vcsnx::kLoadingArtHeight &&
+            full_width)
+            vcsnx::loading_screen().note_artwork_drawn(vcsnx::trace_ms());
         if (const float hud_scale = vcs_configuration().display.hud_scale;
-            hud_scale < 1.0f && gpu_draw.hud_candidate &&
-            vcsnx::hud_draw_shrinkable(hud_shrink_on(vcsnx::trace_ms()), vcsnx_draw_target)) {
+            hud_scale < 1.0f && vcsnx::hud_shrink_candidate(widescreen_surface_primitive, setup.clear_mode, full_width,
+                                                           hud_world_effect_exclusion, vcsnx_text)) {
+            const bool gate_on = hud_shrink_on(vcsnx::trace_ms());
+            const bool shrinkable = vcsnx::hud_draw_shrinkable(gate_on, vcsnx_draw_target);
             float min_y = vertices.front().y;
-            for (const Vertex &vertex : vertices) min_y = std::min(min_y, vertex.y);
+            if (shrinkable || vcsnx::hud_diag_on())
+                for (const Vertex &vertex : vertices) min_y = std::min(min_y, vertex.y);
             const auto [frame_width, frame_height] = vcsnx::hw_verify_frame_extent();
-            const vcsnx::HudShrink shrink = vcsnx::hud_shrink_for(
-                {min_x, min_y, max_x, max_y},
-                {static_cast<float>(setup.scissor_x0), static_cast<float>(setup.scissor_y0),
-                 static_cast<float>(setup.scissor_x1 + 1), static_cast<float>(setup.scissor_y1 + 1)},
-                frame_width, frame_height, hud_scale, setup.depth_test_enabled);
+            const vcsnx::HudBox draw_box{min_x, min_y, max_x, max_y};
+            const vcsnx::HudBox scissor_box{static_cast<float>(setup.scissor_x0), static_cast<float>(setup.scissor_y0),
+                                            static_cast<float>(setup.scissor_x1 + 1),
+                                            static_cast<float>(setup.scissor_y1 + 1)};
+            const vcsnx::HudShrink shrink =
+                shrinkable ? vcsnx::hud_shrink_for(draw_box, scissor_box, frame_width, frame_height, hud_scale,
+                                                   setup.depth_test_enabled, vcsnx_text)
+                           : vcsnx::HudShrink{false, 0.0f, 0.0f, 1.0f};
+            if (vcsnx::hud_diag_on())
+                vcsnx::hud_diag_draw(vcsnx::trace_ms(), draw_box, scissor_box, frame_width, frame_height,
+                                     setup.depth_test_enabled, gate_on, vcsnx::is_frontend_target(vcsnx_draw_target),
+                                     shrink, vcsnx_texture);
             if (shrink.apply) {
                 for (Vertex &vertex : vertices) {
                     vertex.x = vcsnx::hud_shrunk(vertex.x, shrink.anchor_x, shrink.scale);

@@ -1,10 +1,12 @@
 #include "ram_files.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <fstream>
 #include <iostream>
 #include <new>
+#include <system_error>
 
 #if defined(__SWITCH__)
 #include <switch.h>
@@ -25,16 +27,36 @@ std::string key_of(const std::filesystem::path &path) {
 
 RamFiles::~RamFiles() { wait(); }
 
-void RamFiles::start(std::vector<std::filesystem::path> paths) {
-    if (!entries_.empty() || loader_.joinable()) return;
+void RamFiles::prepare(std::vector<std::filesystem::path> paths) {
+    if (!entries_.empty() || started_) return;
     for (const std::filesystem::path &path : paths) {
+        std::error_code error;
+        const std::uintmax_t size = std::filesystem::file_size(path, error);
+        if (error || size == 0u) continue;
         auto entry = std::make_unique<Entry>();
         entry->path = key_of(path);
         entry->open_path = path;
+        entry->data.reset(new (std::nothrow) std::uint8_t[size]);
+        if (!entry->data) {
+            std::cerr << "[vcsnx-ram] no room for " << entry->path << " (" << (size >> 20) << " MB)\n";
+            continue;
+        }
+        entry->size = static_cast<std::size_t>(size);
+        total_bytes_ += size;
         entries_.push_back(std::move(entry));
     }
-    if (entries_.empty()) return;
+    loaded_.store(entries_.empty(), std::memory_order_release);
+}
+
+void RamFiles::start() {
+    if (entries_.empty() || started_) return;
+    started_ = true;
     loader_ = std::thread([this] { load_all(); });
+}
+
+void RamFiles::start(std::vector<std::filesystem::path> paths) {
+    prepare(std::move(paths));
+    start();
 }
 
 std::span<const std::uint8_t> RamFiles::find(const std::filesystem::path &path) const noexcept {
@@ -64,35 +86,31 @@ void RamFiles::load_all() noexcept {
 #endif
     for (const auto &entry : entries_) {
         const auto begin = std::chrono::steady_clock::now();
-        std::ifstream input(entry->open_path, std::ios::binary | std::ios::ate);
-        if (!input) continue;
-        const auto end = input.tellg();
-        if (end <= 0) continue;
-        const auto size = static_cast<std::size_t>(end);
-        std::unique_ptr<std::uint8_t[]> data(new (std::nothrow) std::uint8_t[size]);
-        if (!data) {
-            std::cerr << "[vcsnx-ram] no room for " << entry->path << " (" << (size >> 20) << " MB)\n";
-            continue;
-        }
-        input.seekg(0, std::ios::beg);
+        std::ifstream input(entry->open_path, std::ios::binary);
         std::size_t done = 0u;
-        while (done < size && input) {
-            const std::size_t now = std::min(kChunkBytes, size - done);
-            input.read(reinterpret_cast<char *>(data.get() + done), static_cast<std::streamsize>(now));
+        while (input && done < entry->size) {
+            const std::size_t now = std::min(kChunkBytes, entry->size - done);
+            input.read(reinterpret_cast<char *>(entry->data.get() + done), static_cast<std::streamsize>(now));
             done += static_cast<std::size_t>(input.gcount());
+            read_bytes_.fetch_add(static_cast<std::uint64_t>(input.gcount()), std::memory_order_relaxed);
         }
-        if (done != size) {
+        if (done != entry->size) {
             std::cerr << "[vcsnx-ram] short read of " << entry->path << "\n";
             continue;
         }
-        entry->data = std::move(data);
-        entry->size = size;
         entry->ready.store(true, std::memory_order_release);
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - begin);
-        std::cerr << "[vcsnx-ram] " << std::filesystem::path(entry->path).filename().string() << " " << (size >> 20)
+        std::cerr << "[vcsnx-ram] " << std::filesystem::path(entry->path).filename().string() << " " << (entry->size >> 20)
                   << " MB in RAM after " << ms.count() << " ms\n";
     }
+    loaded_.store(true, std::memory_order_release);
 }
+
+std::pair<std::uint64_t, std::uint64_t> RamFiles::progress() const noexcept {
+    return {read_bytes_.load(std::memory_order_relaxed), total_bytes_};
+}
+
+bool RamFiles::loaded() const noexcept { return loaded_.load(std::memory_order_acquire); }
 
 bool ram_streaming_enabled(const char *setting) noexcept {
     return !(setting != nullptr && setting[0] == '0' && setting[1] == '\0');

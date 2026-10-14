@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="Vcsnx.Builder.Core" />
+    <Using Include="Vcsnx.Builder.Core.Tests" />
+  </ItemGroup>
+
+  <!-- The Builder's test helpers (temporary folders, a fake process runner). -->
+  <ItemGroup>
+    <Compile Include="..\Builder.Core.Tests\TestFiles.cs" Link="Shared\TestFiles.cs" />
+    <Compile Include="..\Builder.Core.Tests\FakeRunner.cs" Link="Shared\FakeRunner.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HdPack\HdPack.csproj" />
+    <ProjectReference Include="..\Builder.Core\Builder.Core.csproj" />
+  </ItemGroup>
+
+</Project>

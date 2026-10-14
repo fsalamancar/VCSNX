@@ -9,6 +9,12 @@ int main() {
     using vcsnx::ThreadRole;
     using vcsnx_test::require;
     return vcsnx_test::run({
+        {"the loading screen's wait runs above the HD preload's workers, then gets its own priority back", [] {
+             // Switch, 2026-10-14: at the game thread's own 0x3B, the same as the workers', the one sharing its core
+             // held it, and the loading screen's bar and artworks froze. Horizon runs lower numbers first.
+             require(vcsnx::kLoadingWaitPriority < 0x3B, "above the workers' 0x3B");
+             { const vcsnx::ScopedThreadPriority raised(vcsnx::kLoadingWaitPriority); }  // no-op off the Switch
+         }},
         {"guest thread owns core 1", [] {
              require(vcsnx::core_for_thread(ThreadRole::Guest, 0u) == 1, "guest core");
          }},

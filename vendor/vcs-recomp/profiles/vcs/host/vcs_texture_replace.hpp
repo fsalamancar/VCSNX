@@ -61,6 +61,10 @@ void texture_pipeline_submit(std::uint64_t key, std::span<const std::byte> rgba8
                              std::uint32_t width, std::uint32_t height,
                              std::uint32_t usage_flags) noexcept;
 void texture_pipeline_poll(std::vector<TextureResult> &out, std::size_t max_results) noexcept;
+// VCSNX: the HD copy of a texture right away, when the RAM preload already holds it (platform/switch/hd_preload.hpp).
+// For interface art, which otherwise shows the game's own picture for a few frames first.
+[[nodiscard]] bool texture_replacement_now(std::span<const std::byte> rgba8, std::uint32_t width,
+                                           std::uint32_t height, ReplacementTexture &out) noexcept;
 void texture_pipeline_shutdown() noexcept;
 [[nodiscard]] bool texture_pipeline_active() noexcept;
 

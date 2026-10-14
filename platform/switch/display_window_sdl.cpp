@@ -13,9 +13,14 @@
 #include "alloc_diag.hpp"
 #include "main_watchdog.hpp"
 #include "hud_scale.hpp"
+#include "hud_diag.hpp"
 #include "hw_verify.hpp"
+
+#include <algorithm>
+#include <cstdio>
 #include "pad_mapping.hpp"
 #include "pad_source.hpp"
+#include "loading_screen.hpp"
 #include "present_math.hpp"
 #include "trace_clock.hpp"
 #include "vcs_config.hpp"
@@ -66,6 +71,10 @@ struct WindowState {
     int texture_height{};
     std::uint32_t texture_format{};
     std::vector<std::uint32_t> upload;
+    // VCSNX's loading screen (vcsnx::loading_screen): its artwork, and which one it is.
+    SDL_Texture *loading_texture{nullptr};
+    std::uint64_t loading_version{};
+    long long loading_presented_ms{-1'000'000};
 };
 
 WindowState &window_state() {
@@ -182,6 +191,66 @@ void present_pending_frame(WindowState &state) {
     vcsnx::note_main_present(trace_ms()); // main_watchdog.hpp
 }
 
+// VCSNX's loading screen, drawn instead of the game's frames while the game shows its loading artwork and while it
+// waits for the RAM loads (loading_screen.hpp): the artwork over the whole frame, as the game draws it, and a bar
+// like the game's at its bottom left.
+void present_loading_screen(WindowState &state) {
+    // 20 frames a second: at the window's 60 this thread took enough of core 0 from the HD preload's worker there
+    // that the loads went from 37 s to 56 s (Switch, 2026-10-14).
+    constexpr long long kLoadingFrameMs = 50;
+    const long long now = trace_ms();
+    if (now - state.loading_presented_ms < kLoadingFrameMs) return;
+    state.loading_presented_ms = now;
+    const auto [image, version] = vcsnx::loading_screen().image(now);
+    if (image && image->width > 0u && (state.loading_texture == nullptr || version != state.loading_version)) {
+        if (state.loading_texture != nullptr) SDL_DestroyTexture(state.loading_texture);
+        state.loading_texture = SDL_CreateTexture(state.renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC,
+                                                  static_cast<int>(image->width), static_cast<int>(image->height));
+        if (state.loading_texture != nullptr)
+            SDL_UpdateTexture(state.loading_texture, nullptr, image->rgba.data(), static_cast<int>(image->width) * 4);
+        state.loading_version = version;
+    }
+    int output_w = 0;
+    int output_h = 0;
+    SDL_GetRendererOutputSize(state.renderer, &output_w, &output_h);
+    // The same box as the game's own frames (on the Switch they fill the screen): with the logical 512 x 320 frame's
+    // shape it had black bands at the sides and looked cut next to the game's (2026-10-14).
+    const auto [frame_w, frame_h] = vcsnx::hw_verify_frame_extent();
+    const vcsnx::Rect box =
+        state.texture_width > 0 && state.texture_height > 0
+            ? vcsnx::letterbox(output_w, output_h, static_cast<std::uint32_t>(state.texture_width),
+                               static_cast<std::uint32_t>(state.texture_height))
+            : vcsnx::letterbox(output_w, output_h, static_cast<std::uint32_t>(frame_w), static_cast<std::uint32_t>(frame_h));
+    SDL_SetRenderDrawColor(state.renderer, 0, 0, 0, 255);
+    SDL_RenderClear(state.renderer);
+    const SDL_Rect destination{box.x, box.y, box.w, box.h};
+    if (state.loading_texture != nullptr) SDL_RenderCopy(state.renderer, state.loading_texture, nullptr, &destination);
+    // The bar where the game draws its own, white with a pink fill (the author's screenshot, 2026-10-14). With no
+    // wait to follow (a later loading screen) a pink stretch goes back and forth so it never looks stuck.
+    const int bar_x = box.x + box.w * 51 / 1000;
+    const int bar_w = box.w * 238 / 1000;
+    const int bar_y = box.y + box.h * 882 / 1000;
+    const int bar_h = std::max(6, box.h * 44 / 1000);
+    const SDL_Rect track{bar_x, bar_y, bar_w, bar_h};
+    SDL_Rect fill{bar_x, bar_y, 0, bar_h};
+    if (const float fraction = vcsnx::loading_screen().fraction(now); fraction >= 0.0f) {
+        fill.w = static_cast<int>(static_cast<float>(bar_w) * fraction);
+    } else {
+        constexpr long long kSweepMs = 1600;
+        const float phase = static_cast<float>(now % (2 * kSweepMs)) / static_cast<float>(kSweepMs);
+        const float at = phase <= 1.0f ? phase : 2.0f - phase;
+        fill.w = bar_w / 4;
+        fill.x = bar_x + static_cast<int>(at * static_cast<float>(bar_w - fill.w));
+    }
+    SDL_SetRenderDrawBlendMode(state.renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(state.renderer, 255, 255, 255, 235);
+    SDL_RenderFillRect(state.renderer, &track);
+    SDL_SetRenderDrawColor(state.renderer, 255, 130, 230, 255);
+    SDL_RenderFillRect(state.renderer, &fill);
+    SDL_RenderPresent(state.renderer);
+    vcsnx::note_main_present(trace_ms()); // main_watchdog.hpp
+}
+
 } // namespace
 
 bool display_window_enabled() { return true; }
@@ -255,9 +324,15 @@ void display_window_present_rgba(std::span<const std::byte> rgba, std::uint32_t 
     vcsnx::alloc_diag_tick(trace_ms()); // VCSNX_ALLOC_DIAG: every ~10 s of frames (the status heartbeat is rare)
     vcsnx::check_main_thread(trace_ms()); // a main thread that stopped presenting is logged (main_watchdog.hpp)
     vcsnx::Rect source{};
-    if (vcsnx::menu_shown().shown(trace_ms())) {
+    const bool menu_crop = vcsnx::menu_shown().shown(trace_ms());
+    if (menu_crop) {
         const auto [logical_width, logical_height] = vcsnx::hw_verify_frame_extent();
         source = vcsnx::menu_source(width, height, logical_width, logical_height);
+    }
+    static bool last_menu_crop = false;
+    if (vcsnx::hud_diag_on() && menu_crop != last_menu_crop) {
+        last_menu_crop = menu_crop;
+        std::fprintf(stderr, "[hud-diag] t=%lldms menu crop %s\n", trace_ms(), menu_crop ? "on" : "off");
     }
     publish_pixels(state, packed, width, height, SDL_PIXELFORMAT_ABGR8888, source);
 }
@@ -320,7 +395,28 @@ void display_window_pump_events() {
     }
     if (!title.empty()) SDL_SetWindowTitle(state.window, title.c_str());
     vcsnx::pad_source_pump();
-    present_pending_frame(state);
+    const long long now = trace_ms();
+    const bool loading = vcsnx::loading_screen().active(now);
+    static bool was_loading = false;
+    if (loading != was_loading) {
+        was_loading = loading;
+        const long long since = vcsnx::loading_screen().since_artwork_ms(now);
+        if (loading)
+            std::fprintf(stderr, "[loading-screen] t=%lldms up\n", now);
+        else
+            std::fprintf(stderr, "[loading-screen] t=%lldms down at the game's own frames, %lld ms after the artwork's last draw "
+                                 "(a 200 ms hold went back %lld ms earlier, to the game's loading screen)\n",
+                         now, since, std::max(0LL, since - vcsnx::kLoadingArtworkHoldMs));
+    }
+    if (loading) {
+        present_loading_screen(state);
+    } else {
+        if (state.loading_texture != nullptr) {
+            SDL_DestroyTexture(state.loading_texture);
+            state.loading_texture = nullptr;
+        }
+        present_pending_frame(state);
+    }
     if (state.shutdown_requested.load(std::memory_order_acquire)) destroy_window(state);
 }
 

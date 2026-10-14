@@ -73,6 +73,105 @@ public sealed class PipelineTests
         Assert.NotNull(result.Sd);
     }
 
+    static string HdFolderWith(params string[] names)
+    {
+        var folder = TestFiles.TempDir();
+        foreach (var name in names) TestFiles.Write(Path.Combine(folder, "Textures", name), [7, 7]);
+        return folder;
+    }
+
+    [Fact]
+    public async Task The_hd_textures_the_player_picks_go_to_the_sd_with_the_game()
+    {
+        var w = MakeWorld();
+        var sd = Path.Combine(TestFiles.TempDir(), "sd");
+        Directory.CreateDirectory(Path.Combine(sd, "switch"));
+        var result = await Run(w, new BuildRequest(w.Game, null, sd, HdFolder: HdFolderWith("0123456789abcdef.png")));
+        Assert.True(File.Exists(Path.Combine(SdCard.GameFolder(sd), "Textures", "0123456789abcdef.png")));
+        Assert.Equal(1, result.Hd!.Textures.Copied);
+    }
+
+    [Fact]
+    public async Task The_hd_movies_in_the_folder_go_to_the_sd_with_the_textures()
+    {
+        var w = MakeWorld();
+        var sd = Path.Combine(TestFiles.TempDir(), "sd");
+        Directory.CreateDirectory(Path.Combine(sd, "switch"));
+        var folder = HdFolderWith("0123456789abcdef.png");
+        TestFiles.Write(Path.Combine(folder, "Textures", "LOGO.mp4"), [3]);
+        var result = await Run(w, new BuildRequest(w.Game, null, sd, HdFolder: folder));
+        Assert.True(File.Exists(Path.Combine(SdCard.GameFolder(sd), "HD", "LOGO.mp4")));
+        Assert.Equal(1, result.Hd!.Movies.Copied);
+    }
+
+    [Fact]
+    public async Task Without_an_sd_the_hd_textures_go_next_to_the_nro()
+    {
+        var w = MakeWorld();
+        await Run(w, new BuildRequest(w.Game, null, null, HdFolder: HdFolderWith("0123456789abcdef.png")));
+        Assert.True(File.Exists(Path.Combine(w.Paths.Output, "Textures", "0123456789abcdef.png")));
+    }
+
+    [Fact]
+    public async Task Without_an_hd_folder_the_textures_on_the_sd_are_left_as_they_are()
+    {
+        var w = MakeWorld();
+        var sd = Path.Combine(TestFiles.TempDir(), "sd");
+        var mine = TestFiles.Write(Path.Combine(SdCard.GameFolder(sd), "Textures", "fedcba9876543210.png"), [9]);
+        var result = await Run(w, new BuildRequest(w.Game, null, sd));
+        Assert.Equal(new[] { mine }, Directory.GetFiles(Path.Combine(SdCard.GameFolder(sd), "Textures")));
+        Assert.Equal(new byte[] { 9 }, File.ReadAllBytes(mine));
+        Assert.Null(result.Hd);
+    }
+
+    // VCSNX's Settings > Controls picture and the menu legend's A and B, in the kit (tools/make_builder_kit.py).
+    static string KitPicture(World w, byte[] content) =>
+        TestFiles.Write(Path.Combine(w.Paths.Kit, "Textures", "cc29539db154b0c7.png"), content);
+
+    [Fact]
+    public async Task The_kits_menu_pictures_go_to_the_sd_with_the_game_next_to_the_players_own()
+    {
+        var w = MakeWorld();
+        KitPicture(w, [1, 2, 3]);
+        var sd = Path.Combine(TestFiles.TempDir(), "sd");
+        var mine = TestFiles.Write(Path.Combine(SdCard.GameFolder(sd), "Textures", "fedcba9876543210.png"), [9]);
+        await Run(w, new BuildRequest(w.Game, null, sd));
+        Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(Path.Combine(SdCard.GameFolder(sd), "Textures", "cc29539db154b0c7.png")));
+        Assert.Equal(new byte[] { 9 }, File.ReadAllBytes(mine));
+    }
+
+    [Fact]
+    public async Task Without_an_sd_the_kits_menu_pictures_go_next_to_the_nro()
+    {
+        var w = MakeWorld();
+        KitPicture(w, [1, 2, 3]);
+        await Run(w, new BuildRequest(w.Game, null, null));
+        Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(Path.Combine(w.Paths.Output, "Textures", "cc29539db154b0c7.png")));
+    }
+
+    [Fact]
+    public async Task The_kits_menu_picture_wins_over_an_hd_folders_copy_of_the_same_texture()
+    {
+        // An HD folder can hold an upscale of the PSP's drawing under the same key; the runtime lays out VCSNX's own.
+        var w = MakeWorld();
+        KitPicture(w, [1, 2, 3]);
+        var sd = Path.Combine(TestFiles.TempDir(), "sd");
+        Directory.CreateDirectory(Path.Combine(sd, "switch"));
+        await Run(w, new BuildRequest(w.Game, null, sd, HdFolder: HdFolderWith("cc29539db154b0c7.png")));
+        Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(Path.Combine(SdCard.GameFolder(sd), "Textures", "cc29539db154b0c7.png")));
+    }
+
+    [Fact]
+    public async Task An_hd_folder_without_textures_is_refused_before_anything_runs()
+    {
+        var w = MakeWorld();
+        var empty = TestFiles.TempDir();
+        var error = await Assert.ThrowsAsync<BuilderException>(() => Run(w, new BuildRequest(w.Game, null, null, HdFolder: empty)));
+        Assert.Equal("HdFolderEmpty", error.Key);
+        Assert.Empty(w.Runner.Calls);
+        Assert.Equal(0, w.Server.Requests);
+    }
+
     [Fact]
     public async Task A_folder_with_accents_is_refused_before_anything_runs_and_one_with_spaces_works()
     {

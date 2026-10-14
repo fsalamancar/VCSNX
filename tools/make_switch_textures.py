@@ -1,13 +1,13 @@
 """Draws VCSNX's Switch replacements for the PSP-specific menu textures, with Pillow and no game data.
 
 The fork swaps any game texture for Textures/<hash>.png, where <hash> names the decoded original and
-the PNG is exactly 2x, 4x or 8x its size (vcs_texture_replace.cpp). This writes, at 4x:
-- cc29539db154b0c7.png: the PSP drawn in Settings > Controls (256x128) becomes a Pro Controller-style
-  pad. The game draws the label lines at fixed places for the PSP's buttons, so the d-pad stays upper
-  left, the stick lower left and -/+ at the bottom right of centre, where those lines end. Each face
-  button carries the letter that does that action (pad_mapping.cpp: cross is A, circle is B, square
-  is Y, triangle is X), so the line for "Run" ends on A even though A sits on the right of a real pad.
-- 78dfb7e45c4c32b5.png / 27b80d3a3bb72734.png: the menu legend's cross and circle (16x16) become the
+the PNG is exactly 2x, 4x or 8x its size (vcs_texture_replace.cpp). This writes:
+- cc29539db154b0c7.png, at 8x: the PSP drawn in Settings > Controls (256x128) becomes the author's Switch
+  (assets/controls/switch_handheld.png, the author's own picture under a free licence) with VCSNX's labels:
+  each control with what it does on foot and, in cyan, in a vehicle (pad_mapping.cpp). VCSNX hides the
+  game's own labels and label lines on that page and stretches this picture over the band they took
+  (platform/switch/controls_screen.hpp), so it is drawn for that band's shape and squeezed to 2:1.
+- 78dfb7e45c4c32b5.png / 27b80d3a3bb72734.png, at 4x: the menu legend's cross and circle (16x16) become the
   A (confirm) and B (back) buttons.
 
 Usage: python3 -I tools/make_switch_textures.py <output folder>
@@ -15,6 +15,7 @@ Then copy the PNGs into the game's Textures folder (Textures/ beside the game, s
 on the Switch); [Textures] Replacement=true in VCSNative.ini loads them.
 """
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -85,66 +86,119 @@ class Canvas:
         return self.image.resize(self.size, Image.LANCZOS)
 
 
-def body_shape(c: Canvas, fill, grow: float = 0.0) -> None:
-    """Main body plus two grips; `grow` widens every part (used for the outline pass)."""
-    c.rounded(40 - grow, 64 - grow, 984 + grow, 330 + grow, 110 + grow, fill)
-    c.ellipse(224, 340, 190 + grow, 150 + grow, fill)
-    c.ellipse(800, 340, 190 + grow, 150 + grow, fill)
+HANDHELD = Path(__file__).resolve().parents[1] / "assets" / "controls" / "switch_handheld.png"
+
+# The band the picture fills (controls_screen.hpp: 460 x 118 of the menu's 480 x 272, drawn 2.67 x 2.65 times
+# that on a 1280 x 720 screen), drawn at this size and then squeezed to the texture's 2:1.
+BAND = (2456, 624)
+PICTURE = (2048, 1024)
+FOOT = (240, 240, 240, 255)
+CAR = (0, 215, 220, 255)  # the menu's cyan
+PINK = (255, 105, 180, 255)
+BADGE = (40, 40, 46, 255)
 
 
-def pro_controller() -> Image.Image:
-    c = Canvas(1024, 512)
-    # Shoulder buttons first, so the body overlaps their lower edge.
-    c.rounded(70, 34, 270, 84, 22, SHOULDER, BODY_EDGE, 5)
-    c.rounded(754, 34, 954, 84, 22, SHOULDER, BODY_EDGE, 5)
-    body_shape(c, BODY_EDGE, grow=6)
-    body_shape(c, BODY)
-    c.rounded(120, 74, 904, 120, 40, BODY_SHINE)  # light catching the top edge
-    # Player LEDs, top centre.
-    for i in range(4):
-        c.rounded(470 + i * 24, 90, 484 + i * 24, 98, 3, LED)
+@dataclass(frozen=True)
+class Control:
+    """One control: its badge, what it does on foot and in a vehicle ("" when the same), and where it is on the
+    author's picture (its own 708 x 305 pixels)."""
 
-    # D-pad (where the PSP's was: the label lines end there).
-    cx, cy = 118, 238
-    c.ellipse(cx, cy, 86, 86 * ROUND_Y, RECESS)
-    arm, length = 24, 68
-    c.rounded(cx - length, cy - arm * ROUND_Y, cx + length, cy + arm * ROUND_Y, 8, BUTTON)
-    c.rounded(cx - arm, cy - length * ROUND_Y, cx + arm, cy + length * ROUND_Y, 8, BUTTON)
-    tip, half = 14, 9
-    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
-        ax, ay = cx + dx * (length - 22), cy + dy * (length - 22) * ROUND_Y
-        # Each arrow points outwards, along its arm.
-        if dx == 0:
-            c.polygon([(ax, ay + dy * tip * 0.5), (ax - half, ay - dy * tip * 0.5), (ax + half, ay - dy * tip * 0.5)],
-                      GLYPH)
-        else:
-            c.polygon([(ax + dx * tip * 0.5, ay), (ax - dx * tip * 0.5, ay - half), (ax - dx * tip * 0.5, ay + half)],
-                      GLYPH)
+    badge: str
+    on_foot: str
+    in_car: str
+    point: tuple
 
-    # Sticks: the left one where the PSP's nub was, the right one inside the right grip.
-    for sx, sy in ((122, 372), (676, 352)):
-        c.button(sx, sy, 50, BUTTON, BODY_EDGE, 4)
-        c.button(sx, sy, 38, RECESS, BUTTON_RING, 3)
-        c.button(sx, sy, 24, BUTTON)
 
-    # Face buttons in the PSP's places, each with the letter that does its action: triangle X (top),
-    # circle B (right), cross A (bottom), square Y (left).
-    for label, bx, by in (("X", 878, 182), ("B", 933, 238), ("A", 878, 293), ("Y", 822, 238)):
-        c.button(bx, by, 31, BUTTON, BUTTON_RING, 4)
-        c.text(bx, by + 1, label, 38, GLYPH)
+# pad_mapping.cpp: A is cross, B circle, Y square, X triangle; on foot ZL/ZR are L/R; in a vehicle ZR accelerates,
+# ZL brakes, L and R look left and right (both, or the right stick pressed, look back). The actions are the game's
+# own for SETUP 1 (Settings > Controls, on foot and in car, 2026-10-14).
+CONTROLS_LEFT = (
+    Control("L", "Look / Fine aim", "Look left", (32, 14)),
+    Control("ZL", "Look / Fine aim", "Brake / Reverse", (14, 34)),
+    Control("−", "Camera modes", "", (84, 36)),
+    Control("stick", "Move", "Steer", (54, 81)),
+    Control("up", "Special mission", "", (55, 142)),
+    Control("leftright", "Cycle weapons / targets", "Radio station", (55, 164)),
+    Control("down", "Free aim", "Horn", (55, 186)),
+)
+CONTROLS_RIGHT = (
+    Control("R", "Target", "Look right", (676, 14)),
+    Control("ZR", "Target", "Accelerate", (694, 34)),
+    Control("+", "Pause", "", (625, 36)),
+    # In the order their lines reach the buttons without crossing.
+    Control("X", "Enter vehicle", "Exit vehicle", (655, 60)),
+    Control("Y", "Jump", "Brake / Reverse", (631, 82)),
+    Control("A", "Run", "Accelerate", (678, 82)),
+    Control("B", "Attack / Fire weapon", "", (655, 104)),
+    Control("rstick", "Camera", "Press to look back", (655, 164)),
+)
 
-    # Minus and plus where Select and Start were, then Capture and Home in the middle.
-    c.button(710, 446, 19, BUTTON, BUTTON_RING, 3)
-    c.rounded(701, 443, 719, 449, 2, GLYPH)
-    c.button(773, 446, 19, BUTTON, BUTTON_RING, 3)
-    c.rounded(764, 443, 782, 449, 2, GLYPH)
-    c.rounded(770, 436, 776, 456, 2, GLYPH)
-    c.rounded(436, 236, 466, 270, 6, BUTTON, BUTTON_RING, 3)
-    c.button(451, 253, 8, RECESS)
-    c.button(574, 253, 18, BUTTON, BUTTON_RING, 3)
-    c.polygon([(574, 241), (563, 252), (585, 252)], GLYPH)
-    c.rounded(566, 252, 582, 264, 1, GLYPH)
-    return c.result()
+
+def draw_badge(d: ImageDraw.ImageDraw, cx: float, cy: float, kind: str, scale: float) -> None:
+    r = 30 * scale
+    if kind in ("L", "ZL", "R", "ZR"):
+        d.rounded_rectangle([cx - r * 1.35, cy - r * 0.85, cx + r * 1.35, cy + r * 0.85], radius=r * 0.5, fill=BADGE,
+                            outline=PINK, width=round(4 * scale))
+    else:
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=BADGE, outline=PINK, width=round(4 * scale))
+    if kind in ("stick", "rstick"):
+        d.ellipse([cx - r * 0.62, cy - r * 0.62, cx + r * 0.62, cy + r * 0.62], outline=FOOT, width=round(4 * scale))
+        d.ellipse([cx - r * 0.3, cy - r * 0.3, cx + r * 0.3, cy + r * 0.3], fill=FOOT)
+        return
+    arrows = {"up": [(0, -1)], "down": [(0, 1)], "leftright": [(-1, 0), (1, 0)]}
+    if kind in arrows:
+        for dx, dy in arrows[kind]:
+            ax, ay, t = cx + dx * r * 0.32, cy + dy * r * 0.32, r * 0.42
+            if dx == 0:
+                pts = [(ax, ay + dy * t), (ax - t, ay - dy * t * 0.6), (ax + t, ay - dy * t * 0.6)]
+            else:
+                pts = [(ax + dx * t, ay), (ax - dx * t * 0.6, ay - t), (ax - dx * t * 0.6, ay + t)]
+            d.polygon(pts, fill=FOOT)
+        return
+    if kind in ("−", "+"):  # bars: the fonts have no minus sign
+        t, l = 4 * scale, r * 0.5
+        d.rectangle([cx - l, cy - t, cx + l, cy + t], fill=FOOT)
+        if kind == "+":
+            d.rectangle([cx - t, cy - l, cx + t, cy + l], fill=FOOT)
+        return
+    d.text((cx, cy + 2 * scale), kind, font=font(round(34 * scale)), fill=FOOT, anchor="mm")
+
+
+def handheld_controls(handheld: Path = HANDHELD) -> Image.Image:
+    """The author's Switch in the middle, VCSNX's labels for the left Joy-Con's controls on the left and the right
+    one's on the right, each with a line to its control."""
+    ss = 2  # drawn at twice the size, then reduced
+    band_w, band_h = BAND[0] * ss, BAND[1] * ss
+    image = Image.new("RGBA", (band_w, band_h), (0, 0, 0, 0))
+    switch = Image.open(handheld).convert("RGBA")
+    k = (BAND[1] - 64) * ss / switch.height
+    sw, sh = round(switch.width * k), round(switch.height * k)
+    ox, oy = (band_w - sw) // 2, (band_h - sh) // 2
+    image.alpha_composite(switch.resize((sw, sh), Image.LANCZOS), (ox, oy))
+    d = ImageDraw.Draw(image)
+    foot_font, car_font = font(36 * ss), font(29 * ss)
+
+    def column(controls, left: bool) -> None:
+        rows = len(controls)
+        step = band_h / rows
+        badge_x = (ox - 64 * ss) if left else (ox + sw + 64 * ss)
+        text_x = badge_x - 58 * ss if left else badge_x + 58 * ss
+        anchor = "r" if left else "l"
+        for i, control in enumerate(controls):
+            cy = step * (i + 0.5)
+            bx, by = ox + control.point[0] * k, oy + control.point[1] * k
+            d.line([(badge_x + (40 if left else -40) * ss, cy), (bx, by)], fill=PINK, width=4 * ss)
+            d.ellipse([bx - 9 * ss, by - 9 * ss, bx + 9 * ss, by + 9 * ss], fill=PINK)
+            draw_badge(d, badge_x, cy, control.badge, ss)
+            if control.in_car:
+                d.text((text_x, cy - 18 * ss), control.on_foot, font=foot_font, fill=FOOT, anchor=anchor + "m")
+                d.text((text_x, cy + 20 * ss), "Car: " + control.in_car, font=car_font, fill=CAR, anchor=anchor + "m")
+            else:
+                d.text((text_x, cy), control.on_foot, font=foot_font, fill=FOOT, anchor=anchor + "m")
+
+    column(CONTROLS_LEFT, True)
+    column(CONTROLS_RIGHT, False)
+    return image.resize(PICTURE, Image.LANCZOS)
 
 
 def legend_button(label: str) -> Image.Image:
@@ -154,20 +208,25 @@ def legend_button(label: str) -> Image.Image:
     return c.result()
 
 
-def main() -> int:
-    if len(sys.argv) != 2:
-        print(__doc__.strip().splitlines()[-4], file=sys.stderr)
-        return 2
-    out = Path(sys.argv[1])
+def write_textures(out: Path) -> dict[str, tuple[int, int]]:
+    """Writes the three pictures into `out` as <key>.png; returns each key's size."""
     out.mkdir(parents=True, exist_ok=True)
     images = {
-        CONTROLS_PSP: pro_controller(),
+        CONTROLS_PSP: handheld_controls(),
         LEGEND_CROSS: legend_button("A"),
         LEGEND_CIRCLE: legend_button("B"),
     }
     for name, image in images.items():
         image.save(out / f"{name}.png")
-        print(f"{name}.png {image.size[0]}x{image.size[1]}")
+    return {name: image.size for name, image in images.items()}
+
+
+def main() -> int:
+    if len(sys.argv) != 2:
+        print(__doc__.strip().splitlines()[-4], file=sys.stderr)
+        return 2
+    for name, (width, height) in write_textures(Path(sys.argv[1])).items():
+        print(f"{name}.png {width}x{height}")
     return 0
 
 

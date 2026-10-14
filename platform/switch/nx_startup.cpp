@@ -130,11 +130,12 @@ struct StartupChecks {
             }
             const std::string movies = paths.game_root.string() + "/PSP_GAME/USRDIR/RUNDATA/PSP/MOVIES/";
             facts.boot_movies_present = file_exists(movies + "LOGO.PMF") && file_exists(movies + "TITLES.PMF");
-            // The city's streaming archives into RAM in the background (ram_files.hpp); VCSNX_RAM_STREAMING=0
-            // keeps reading them from the SD.
+            // The room for the city's streaming archives in RAM, now, while the heap is in one piece; they are
+            // read on the loading screen (ram_files.hpp, vcs_profile.cpp). VCSNX_RAM_STREAMING=0 keeps reading
+            // them from the SD.
             if (vcsnx::ram_streaming_enabled(std::getenv("VCSNX_RAM_STREAMING"))) {
                 const std::filesystem::path rundata = paths.game_root / "PSP_GAME" / "USRDIR" / "RUNDATA";
-                vcsnx::ram_files().start({rundata / "MAINLA.IMG", rundata / "BEACH.IMG", rundata / "GTA3PSP.IMG"});
+                vcsnx::ram_files().prepare({rundata / "MAINLA.IMG", rundata / "BEACH.IMG", rundata / "GTA3PSP.IMG"});
             }
         } catch (const std::exception &) {
             facts.executable = vcsnx::ExecutableState::Missing;

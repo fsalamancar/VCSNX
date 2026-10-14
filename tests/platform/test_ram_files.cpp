@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -51,8 +52,25 @@ int main() {
              require(files.find(a).size() == 1000u, "the one that exists");
              std::filesystem::remove(a);
          }},
+        {"prepared at startup, the files are read only once the loading screen starts them", [] {
+             // The author (2026-10-14): load everything during the loading screen's artwork, not the movies.
+             // The room is still asked for at startup, while the heap is in one piece.
+             const auto a = write_file("vcsnx_ram_d.img", 3000u);
+             vcsnx::RamFiles files;
+             files.prepare({a});
+             require(files.find(a).empty(), "not read yet");
+             require(files.progress() == std::make_pair(std::uint64_t{0}, std::uint64_t{3000}) && !files.loaded(),
+                     "nothing read of 3000 bytes");
+             files.start();
+             files.wait();
+             require(files.find(a).size() == 3000u, "read");
+             require(files.progress() == std::make_pair(std::uint64_t{3000}, std::uint64_t{3000}) && files.loaded(),
+                     "all of it, for the loading screen's bar");
+             std::filesystem::remove(a);
+         }},
         {"before start nothing is in RAM", [] {
              vcsnx::RamFiles files;
+             require(files.loaded(), "nothing to load counts as loaded");
              require(files.find("/x/MAINLA.IMG").empty(), "empty");
              files.wait(); // nothing to wait for
          }},

@@ -4,6 +4,7 @@ using Vcsnx.Builder.Core;
 // for players. Usage: Builder.Cli --game <PSP_DATA> [--icon <image>] [--sd <SD root>]
 //   [--corpus-zip <PSPRecomp zip>] [--base <folder with toolchain, kit, hashes>] [--toolchain <dir>]
 //   [--kit <dir>] [--hashes <dir>] [--work <dir>] [--out <dir>]
+// HD textures and movies the player already has: --hd-folder <folder with them> (its Textures, or a copy of an SD card).
 var options = new Dictionary<string, string>(StringComparer.Ordinal);
 for (var i = 0; i + 1 < args.Length; i += 2)
 {
@@ -32,8 +33,12 @@ var progress = new Progress<BuildProgress>(p =>
 try
 {
     var result = await pipeline.RunAsync(new BuildRequest(gameFolder, options.GetValueOrDefault("icon"), options.GetValueOrDefault("sd"),
-        options.GetValueOrDefault("corpus-zip")), progress, log, cancel.Token);
+        options.GetValueOrDefault("corpus-zip"), options.GetValueOrDefault("hd-folder")), progress, log, cancel.Token);
     Console.WriteLine(Strings.Get(result.Sd is null ? "Done" : "DoneSd", Path.GetDirectoryName(result.Module)!));
+    if (result.Hd is { } hd)
+        Console.WriteLine(result.Sd is null
+            ? Strings.Get("DoneHd", hd.Textures.Copied + hd.Textures.Skipped, hd.Movies.Copied + hd.Movies.Skipped, Path.GetDirectoryName(result.Module)!)
+            : Strings.Get("DoneHdSd", hd.Textures.Copied, hd.Movies.Copied, hd.Textures.Skipped + hd.Movies.Skipped));
     return 0;
 }
 catch (BuilderException e) { Console.Error.WriteLine(e.Localized); log.WriteLine(e.Message); return 1; }

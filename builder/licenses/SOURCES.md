@@ -1,6 +1,6 @@
 # Where the source code is
 
-## The toolchain (toolchain/ in VCSNX-Builder-0.1.0.zip)
+## The toolchain (toolchain/ in VCSNX-Builder-0.3.0.zip)
 
 `toolchain/devkitA64` is devkitPro's Windows build of devkitA64, unmodified, from these packages:
 

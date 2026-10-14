@@ -6,7 +6,7 @@ public sealed record KitInfo(string Version, string Gcc, string Abi);
 
 /// <summary>The kit tools/make_builder_kit.py builds: the compile line of the translated code and the link line of
 /// vcs_game.so, with placeholders {kit} {toolchain} {generated} {source} {output} {generated_objects}; the module's
-/// own entry objects; the runtime vcsnx.nro; VCSNative.ini.</summary>
+/// own entry objects; the runtime vcsnx.nro; VCSNative.ini; VCSNX's own menu pictures (Textures\).</summary>
 public sealed class Kit
 {
     static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
@@ -41,6 +41,12 @@ public sealed class Kit
         Directory.Exists(Path.Combine(Root, "obj")) ? Directory.GetFiles(Path.Combine(Root, "obj")).Order(StringComparer.Ordinal).ToList() : [];
     public string RuntimeNro => Path.Combine(Root, "vcsnx.nro");
     public string Ini => Path.Combine(Root, "VCSNative.ini");
+    /// <summary>kit\Textures\&lt;key&gt;.png: VCSNX's Settings &gt; Controls picture and the menu legend's A and B,
+    /// copied to switch\vcsnx\Textures on every build.</summary>
+    public IReadOnlyList<string> Textures =>
+        Directory.Exists(Path.Combine(Root, "Textures"))
+            ? Directory.GetFiles(Path.Combine(Root, "Textures")).Where(f => HdFolder.IsTexture(Path.GetFileName(f))).Order(StringComparer.Ordinal).ToList()
+            : [];
 
     public IReadOnlyList<string> CompileArgs(Toolchain toolchain, string generatedDir, string source, string output) =>
         _compile.Select(a => Fill(a, toolchain, generatedDir).Replace("{source}", Fwd(source)).Replace("{output}", Fwd(output))).ToList();

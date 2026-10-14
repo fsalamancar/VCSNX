@@ -4,11 +4,15 @@ include("${CMAKE_CURRENT_LIST_DIR}/vcsnx_splash.cmake")
 
 set(VCSNX_PLATFORM_SOURCES
     "${VCSNX_PLATFORM_DIR}/cpu_clock.cpp"
+    "${VCSNX_PLATFORM_DIR}/controls_screen.cpp"
     "${VCSNX_PLATFORM_DIR}/copy_present.cpp"
     "${VCSNX_PLATFORM_DIR}/display_window_sdl.cpp"
     "${VCSNX_PLATFORM_DIR}/frame_budget.cpp"
     "${VCSNX_PLATFORM_DIR}/ge_filters.cpp"
     "${VCSNX_PLATFORM_DIR}/gpu_frame_hold.cpp"
+    "${VCSNX_PLATFORM_DIR}/hd_movies.cpp"
+    "${VCSNX_PLATFORM_DIR}/hud_diag.cpp"
+    "${VCSNX_PLATFORM_DIR}/loading_screen.cpp"
     "${VCSNX_PLATFORM_DIR}/hud_scale.cpp"
     "${VCSNX_PLATFORM_DIR}/hw_verify.cpp"
     "${VCSNX_PLATFORM_DIR}/main_watchdog.cpp"
@@ -26,6 +30,7 @@ set(VCSNX_PLATFORM_SOURCES
     "${VCSNX_PLATFORM_DIR}/crash_log.cpp"
     "${VCSNX_PLATFORM_DIR}/ge_slow_log.cpp"
     "${VCSNX_PLATFORM_DIR}/range_allocator.cpp"
+    "${VCSNX_PLATFORM_DIR}/hd_preload.cpp"
     "${VCSNX_PLATFORM_DIR}/ge_timeline.cpp"
     "${VCSNX_PLATFORM_DIR}/guest_io.cpp"
     "${VCSNX_PLATFORM_DIR}/present_phases.cpp"

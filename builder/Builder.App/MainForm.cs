@@ -2,7 +2,7 @@ using Vcsnx.Builder.Core;
 
 namespace Vcsnx.Builder.App;
 
-/// <summary>The window (spec §4.2): it only gathers the three choices and shows the pipeline's progress.</summary>
+/// <summary>The window (spec §4.2): it only gathers the four choices and shows the pipeline's progress.</summary>
 internal sealed class MainForm : Form
 {
     const string Title = "GTA VCS Compiler";
@@ -13,6 +13,7 @@ internal sealed class MainForm : Form
     readonly PictureBox _iconPreview = new() { Size = new Size(96, 96), SizeMode = PictureBoxSizeMode.Zoom, BorderStyle = BorderStyle.FixedSingle };
     readonly ComboBox _sd = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
     readonly Button _create = new() { AutoSize = true, Text = Strings.Get("Create"), Enabled = false };
+    readonly TextBox _hd = new() { Width = 340 };
     readonly ProgressBar _bar = new() { Width = 440, Maximum = 1000 };
     readonly Label _stage = new() { AutoSize = true };
     readonly Label _remaining = new() { AutoSize = true };
@@ -33,13 +34,16 @@ internal sealed class MainForm : Form
         var chooseGame = new Button { Text = Strings.Get("Choose"), AutoSize = true };
         var chooseIcon = new Button { Text = Strings.Get("ChooseImage"), AutoSize = true };
         var removeIcon = new Button { Text = Strings.Get("Remove"), AutoSize = true };
+        var chooseHd = new Button { Text = Strings.Get("Choose"), AutoSize = true };
+        var removeHd = new Button { Text = Strings.Get("Remove"), AutoSize = true };
         var layout = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, Padding = new Padding(12), WrapContents = false };
         layout.Controls.AddRange([
             header,
             new Label { Text = Strings.Get("StepGame"), AutoSize = true, Margin = new Padding(0, 12, 0, 0) }, Row(_game, chooseGame), _gameStatus,
             new Label { Text = Strings.Get("StepIcon"), AutoSize = true, Margin = new Padding(0, 12, 0, 0) }, Row(chooseIcon, removeIcon, _iconPreview),
             new Label { Text = Strings.Get("StepSd"), AutoSize = true, Margin = new Padding(0, 12, 0, 0) }, _sd,
-            Row(_create), _stage, _bar, Row(_remaining, _cancel), _details, _log,
+            new Label { Text = Strings.Get("StepHd"), AutoSize = true, Margin = new Padding(0, 12, 0, 0) }, Row(_hd, chooseHd, removeHd),
+            _create, _stage, _bar, Row(_remaining, _cancel), _details, _log,
             new Label { Text = "bAlo productions", AutoSize = true, ForeColor = Color.Gray, Margin = new Padding(0, 12, 0, 0) },
         ]);
         Controls.Add(layout);
@@ -58,6 +62,12 @@ internal sealed class MainForm : Form
             _iconPreview.ImageLocation = _icon;
         };
         removeIcon.Click += (_, _) => { _icon = null; _iconPreview.ImageLocation = null; _iconPreview.Image = null; };
+        chooseHd.Click += (_, _) =>
+        {
+            using var dialog = new FolderBrowserDialog { ShowNewFolderButton = false };
+            if (dialog.ShowDialog(this) == DialogResult.OK) _hd.Text = dialog.SelectedPath;
+        };
+        removeHd.Click += (_, _) => _hd.Text = "";
         _sd.DropDown += (_, _) => FillSdList();
         _create.Click += async (_, _) => await CreateAsync();
         _cancel.Click += (_, _) => _run?.Cancel();
@@ -124,9 +134,15 @@ internal sealed class MainForm : Form
         var progress = new Progress<BuildProgress>(ShowProgress);
         try
         {
-            var request = new BuildRequest(_game.Text, _icon, (_sd.SelectedItem as SdChoice)?.Root);
+            var request = new BuildRequest(_game.Text, _icon, (_sd.SelectedItem as SdChoice)?.Root,
+                HdFolder: string.IsNullOrWhiteSpace(_hd.Text) ? null : _hd.Text.Trim());
             var result = await RunWithCorpusFallbackAsync(pipeline, request, progress, log);
-            MessageBox.Show(this, Strings.Get(result.Sd is null ? "Done" : "DoneSd", Path.GetDirectoryName(result.Module)!), Title);
+            var done = Strings.Get(result.Sd is null ? "Done" : "DoneSd", Path.GetDirectoryName(result.Module)!);
+            if (result.Hd is { } hd)
+                done += Environment.NewLine + (result.Sd is null
+                    ? Strings.Get("DoneHd", hd.Textures.Copied + hd.Textures.Skipped, hd.Movies.Copied + hd.Movies.Skipped, Path.GetDirectoryName(result.Module)!)
+                    : Strings.Get("DoneHdSd", hd.Textures.Copied, hd.Movies.Copied, hd.Textures.Skipped + hd.Movies.Skipped));
+            MessageBox.Show(this, done, Title);
         }
         catch (BuilderException e) { log.WriteLine(e.Message); MessageBox.Show(this, e.Localized, Title, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         catch (CompileFailedException e) { log.WriteLine(e.Message); MessageBox.Show(this, Strings.Get("CompileFailed", e.Unit), Title, MessageBoxButtons.OK, MessageBoxIcon.Error); }

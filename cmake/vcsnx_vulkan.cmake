@@ -70,12 +70,12 @@ set(VCSNX_SHADER_DIR "${VCSNX_PROFILE_DIR}/host/shaders")
 set(VCSNX_SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/vcs_shaders")
 file(MAKE_DIRECTORY "${VCSNX_SHADER_OUTPUT_DIR}")
 set(VCSNX_SHADER_STEMS psp_ge psp_ge psp_ge_hw psp_ge_hw_packed0115 bloom bloom present fxaa
-    color_grade cloud_march cloud_resolve cloud_composite smaa_edge smaa_weights smaa_blend sky_palette)
-set(VCSNX_SHADER_EXTS vert frag vert vert vert frag frag frag frag frag frag frag frag frag frag frag)
+    color_grade cloud_march cloud_resolve cloud_composite smaa_edge smaa_weights smaa_blend sky_palette bloom_add)
+set(VCSNX_SHADER_EXTS vert frag vert vert vert frag frag frag frag frag frag frag frag frag frag frag frag)
 set(VCSNX_SHADER_SYMBOLS kPspGeVertSpv kPspGeFragSpv kPspGeHwVertSpv kPspGeHwPacked0115VertSpv
     kBloomVertSpv kBloomFragSpv kPresentFragSpv kFxaaFragSpv kColorGradeFragSpv
     kCloudMarchFragSpv kCloudResolveFragSpv kCloudCompositeFragSpv
-    kSmaaEdgeFragSpv kSmaaWeightsFragSpv kSmaaBlendFragSpv kSkyPaletteFragSpv)
+    kSmaaEdgeFragSpv kSmaaWeightsFragSpv kSmaaBlendFragSpv kSkyPaletteFragSpv kBloomAddFragSpv)
 set(VCSNX_SHADER_HEADERS)
 foreach(stem ext symbol IN ZIP_LISTS VCSNX_SHADER_STEMS VCSNX_SHADER_EXTS VCSNX_SHADER_SYMBOLS)
     set(source "${VCSNX_SHADER_DIR}/${stem}.${ext}")

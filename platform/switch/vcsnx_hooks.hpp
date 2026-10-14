@@ -30,6 +30,21 @@ enum class ThreadRole {
 // after every job, so the Vulkan defaults (startup_rules.hpp) keep one raster thread and no async GE.
 [[nodiscard]] int core_for_thread(ThreadRole role, unsigned index) noexcept;
 
+// While alive, the calling thread runs at `priority` (Horizon runs lower numbers first), then has its own back. No-op
+// off the Switch. The game thread waits at the loading screen at kLoadingWaitPriority: at its own 0x3B, the same as
+// the HD preload's workers, the one sharing its core held it and the screen's bar and artworks froze (2026-10-14).
+class ScopedThreadPriority {
+public:
+    explicit ScopedThreadPriority(int priority) noexcept;
+    ~ScopedThreadPriority();
+    ScopedThreadPriority(const ScopedThreadPriority &) = delete;
+    ScopedThreadPriority &operator=(const ScopedThreadPriority &) = delete;
+
+private:
+    int previous_{-1};
+};
+inline constexpr int kLoadingWaitPriority = 0x2C;  // the main thread's
+
 // Pins the calling thread to core_for_thread(role, index) on the Switch; no-op elsewhere.
 void pin_current_thread(ThreadRole role, unsigned index) noexcept;
 

@@ -36,6 +36,7 @@ public static class Strings
         ["StepGame"] = ("1. Tu juego (carpeta PSP_DATA)", "1. Your game (PSP_DATA folder)"),
         ["StepIcon"] = ("2. Ícono (opcional)", "2. Icon (optional)"),
         ["StepSd"] = ("3. SD de la Switch (opcional)", "3. Switch SD card (optional)"),
+        ["StepHd"] = ("4. Texturas y videos HD (opcional): tu carpeta Textures", "4. HD textures and movies (optional): your Textures folder"),
         ["Choose"] = ("Elegir", "Choose"),
         ["ChooseImage"] = ("Elegir imagen…", "Choose image…"),
         ["Remove"] = ("Quitar", "Remove"),
@@ -51,6 +52,12 @@ public static class Strings
         ["StageLinking"] = ("Enlazando vcs_game.so…", "Linking vcs_game.so…"),
         ["StagePackaging"] = ("Preparando vcsnx.nro…", "Preparing vcsnx.nro…"),
         ["StageCopyingToSd"] = ("Copiando a la SD…", "Copying to the SD card…"),
+        ["HdFolderEmpty"] = ("La carpeta HD {0} no tiene texturas (archivos como 0123456789abcdef.png) ni videos (LOGO.mp4, TITLES.mp4). Elige tu carpeta Textures, o déjala vacía para armar el juego sin HD.",
+                             "The HD folder {0} has no textures (files like 0123456789abcdef.png) and no movies (LOGO.mp4, TITLES.mp4). Pick your Textures folder, or leave it empty to build the game without HD."),
+        ["DoneHd"] = ("HD: {0} texturas y {1} videos en {2} (carpetas Textures y HD). Cópialas a switch\\vcsnx\\ en tu SD.",
+                      "HD: {0} textures and {1} movies in {2} (Textures and HD folders). Copy them to switch\\vcsnx\\ on your SD card."),
+        ["DoneHdSd"] = ("HD: {0} texturas y {1} videos copiados a tu SD ({2} ya estaban).",
+                        "HD: {0} textures and {1} movies copied to your SD card ({2} were already there)."),
         ["StageDone"] = ("Listo", "Done"),
     };
 

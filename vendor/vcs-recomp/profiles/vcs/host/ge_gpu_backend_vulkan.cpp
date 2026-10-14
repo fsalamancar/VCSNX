@@ -31,6 +31,9 @@
 #include "vcs_game_clock.hpp"
 #include "vcs_sky_palette.hpp"
 #include "vcs_texture_replace.hpp"
+#if defined(VCSNX)
+#include "hd_preload.hpp"
+#endif
 #include "vcs_runtime_log.hpp"
 #include "vulkan_platform.hpp"
 
@@ -51,6 +54,9 @@
 #include "psp_ge_hw_packed0115_vert_spv.h"
 #include "bloom_vert_spv.h"
 #include "bloom_frag_spv.h"
+#if defined(VCSNX)
+#include "bloom_add_frag_spv.h"
+#endif
 #include "present_frag_spv.h"
 #include "fxaa_frag_spv.h"
 #include "smaa_edge_frag_spv.h"
@@ -737,6 +743,18 @@ struct VulkanGeState {
     VkDeviceMemory bloom_readback_memory{VK_NULL_HANDLE};
     VkDeviceSize bloom_readback_capacity{};
     std::vector<std::byte> bloom_rgba;
+#if defined(VCSNX)
+    // VCSNX: the glow is rendered at a quarter of the frame per axis and added onto color_image on the GPU
+    // (shaders/bloom_add.frag) before the anti-aliasing pass: no bloom readback and no per-pixel CPU composite,
+    // which cost the Switch most of its frame with [SimulateHDR] on (2026-10-13, handheld: 11 game fps).
+    std::uint32_t bloom_width{}, bloom_height{};
+    VkRenderPass bloom_add_render_pass{VK_NULL_HANDLE};
+    VkFramebuffer bloom_add_framebuffer{VK_NULL_HANDLE};
+    VkShaderModule bloom_add_fragment_shader{VK_NULL_HANDLE};
+    VkDescriptorPool bloom_add_descriptor_pool{VK_NULL_HANDLE};
+    VkDescriptorSet bloom_add_descriptor_set{VK_NULL_HANDLE};
+    VkPipeline bloom_add_pipeline{VK_NULL_HANDLE};
+#endif
 
     // Single-pass FXAA (Rendering.SMAA/AntiAliasing -- see the field comment
     // in vcs_config.hpp). A same-size image the FXAA shader writes into,
@@ -1936,6 +1954,17 @@ void destroy_backend(VulkanGeState &s) noexcept {
         destroy_buffer(s.hw_packed_vertex_buffer, s.hw_packed_vertex_memory);
         destroy_buffer(s.hw_index_buffer, s.hw_index_memory);
         destroy_buffer(s.bloom_readback_buffer, s.bloom_readback_memory);
+#if defined(VCSNX)
+        if (s.bloom_add_pipeline != VK_NULL_HANDLE) vkDestroyPipeline(s.device, s.bloom_add_pipeline, nullptr);
+        if (s.bloom_add_descriptor_pool != VK_NULL_HANDLE)
+            vkDestroyDescriptorPool(s.device, s.bloom_add_descriptor_pool, nullptr);
+        if (s.bloom_add_fragment_shader != VK_NULL_HANDLE)
+            vkDestroyShaderModule(s.device, s.bloom_add_fragment_shader, nullptr);
+        if (s.bloom_add_framebuffer != VK_NULL_HANDLE)
+            vkDestroyFramebuffer(s.device, s.bloom_add_framebuffer, nullptr);
+        if (s.bloom_add_render_pass != VK_NULL_HANDLE)
+            vkDestroyRenderPass(s.device, s.bloom_add_render_pass, nullptr);
+#endif
         if (s.bloom_pipeline != VK_NULL_HANDLE)
             vkDestroyPipeline(s.device, s.bloom_pipeline, nullptr);
         if (s.bloom_pipeline_layout != VK_NULL_HANDLE)
@@ -2742,6 +2771,15 @@ void destroy_backend(VulkanGeState &s) noexcept {
     const VcsConfiguration &bloom_config = vcs_configuration();
     if (bloom_config.initialized && bloom_config.bloom.enabled) {
         bool bloom_ok = true;
+#if defined(VCSNX)
+        s.bloom_width = std::max(1u, s.width / 4u);
+        s.bloom_height = std::max(1u, s.height / 4u);
+        if (!create_attachment(kColorFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                               VK_IMAGE_ASPECT_COLOR_BIT, s.bloom_image, s.bloom_memory, s.bloom_view,
+                               s.bloom_width, s.bloom_height)) {
+            bloom_ok = false;
+        }
+#else
         if (!create_attachment(kColorFormat,
                                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
                                    VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
@@ -2749,6 +2787,7 @@ void destroy_backend(VulkanGeState &s) noexcept {
                                s.bloom_view)) {
             bloom_ok = false;
         }
+#endif
 
         if (bloom_ok) {
             VkAttachmentDescription bloom_attachment{};
@@ -2759,7 +2798,11 @@ void destroy_backend(VulkanGeState &s) noexcept {
             bloom_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
             bloom_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
             bloom_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+#if defined(VCSNX)
+            bloom_attachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;  // sampled by the add pass
+#else
             bloom_attachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+#endif
             VkAttachmentReference bloom_color_ref{0u, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
             VkSubpassDescription bloom_subpass{};
             bloom_subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
@@ -2782,8 +2825,13 @@ void destroy_backend(VulkanGeState &s) noexcept {
             bloom_framebuffer_info.renderPass = s.bloom_render_pass;
             bloom_framebuffer_info.attachmentCount = 1u;
             bloom_framebuffer_info.pAttachments = &s.bloom_view;
+#if defined(VCSNX)
+            bloom_framebuffer_info.width = s.bloom_width;
+            bloom_framebuffer_info.height = s.bloom_height;
+#else
             bloom_framebuffer_info.width = s.width;
             bloom_framebuffer_info.height = s.height;
+#endif
             bloom_framebuffer_info.layers = 1u;
             if (vkCreateFramebuffer(s.device, &bloom_framebuffer_info, nullptr,
                                     &s.bloom_framebuffer) != VK_SUCCESS) {
@@ -2964,8 +3012,90 @@ void destroy_backend(VulkanGeState &s) noexcept {
                                           &s.bloom_pipeline) != VK_SUCCESS) {
                 bloom_ok = false;
             }
+#if defined(VCSNX)
+            // The add pass: loads color_image, blends the upsampled glow ONE + ONE on RGB, and leaves it in
+            // TRANSFER_SRC_OPTIMAL, the layout the anti-aliasing pass and the readback expect after the scene.
+            if (bloom_ok) {
+                VkAttachmentDescription add_attachment{};
+                add_attachment.format = kColorFormat;
+                add_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+                add_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                add_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                add_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                add_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+                add_attachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                add_attachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                VkAttachmentReference add_ref{0u, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+                VkSubpassDescription add_subpass{};
+                add_subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+                add_subpass.colorAttachmentCount = 1u;
+                add_subpass.pColorAttachments = &add_ref;
+                VkRenderPassCreateInfo add_pass_info{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+                add_pass_info.attachmentCount = 1u;
+                add_pass_info.pAttachments = &add_attachment;
+                add_pass_info.subpassCount = 1u;
+                add_pass_info.pSubpasses = &add_subpass;
+                bloom_ok = vkCreateRenderPass(s.device, &add_pass_info, nullptr, &s.bloom_add_render_pass) == VK_SUCCESS;
+            }
+            if (bloom_ok) {
+                VkFramebufferCreateInfo add_framebuffer_info{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+                add_framebuffer_info.renderPass = s.bloom_add_render_pass;
+                add_framebuffer_info.attachmentCount = 1u;
+                add_framebuffer_info.pAttachments = &s.color_view;
+                add_framebuffer_info.width = s.width;
+                add_framebuffer_info.height = s.height;
+                add_framebuffer_info.layers = 1u;
+                bloom_ok = vkCreateFramebuffer(s.device, &add_framebuffer_info, nullptr, &s.bloom_add_framebuffer) == VK_SUCCESS;
+            }
+            if (bloom_ok)
+                bloom_ok = create_shader_module(s, kBloomAddFragSpv, sizeof(kBloomAddFragSpv), s.bloom_add_fragment_shader);
+            if (bloom_ok) {
+                bloom_stages[1].module = s.bloom_add_fragment_shader;
+                VkPipelineColorBlendAttachmentState add_blend{};
+                add_blend.blendEnable = VK_TRUE;
+                add_blend.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+                add_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+                add_blend.colorBlendOp = VK_BLEND_OP_ADD;
+                add_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+                add_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+                add_blend.alphaBlendOp = VK_BLEND_OP_ADD;
+                add_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
+                bloom_color_blend.pAttachments = &add_blend;
+                bloom_info.renderPass = s.bloom_add_render_pass;
+                bloom_ok = vkCreateGraphicsPipelines(s.device, VK_NULL_HANDLE, 1, &bloom_info, nullptr,
+                                                     &s.bloom_add_pipeline) == VK_SUCCESS;
+            }
+            if (bloom_ok) {
+                const VkDescriptorPoolSize add_pool_size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1u};
+                VkDescriptorPoolCreateInfo add_pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+                add_pool_info.maxSets = 1u;
+                add_pool_info.poolSizeCount = 1u;
+                add_pool_info.pPoolSizes = &add_pool_size;
+                bloom_ok = vkCreateDescriptorPool(s.device, &add_pool_info, nullptr, &s.bloom_add_descriptor_pool) == VK_SUCCESS;
+            }
+            if (bloom_ok) {
+                VkDescriptorSetAllocateInfo add_allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+                add_allocate.descriptorPool = s.bloom_add_descriptor_pool;
+                add_allocate.descriptorSetCount = 1u;
+                add_allocate.pSetLayouts = &s.bloom_descriptor_layout;
+                bloom_ok = vkAllocateDescriptorSets(s.device, &add_allocate, &s.bloom_add_descriptor_set) == VK_SUCCESS;
+            }
+            if (bloom_ok) {
+                VkDescriptorImageInfo glow_info{};
+                glow_info.sampler = s.bloom_sampler;
+                glow_info.imageView = s.bloom_view;
+                glow_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                VkWriteDescriptorSet glow_write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                glow_write.dstSet = s.bloom_add_descriptor_set;
+                glow_write.descriptorCount = 1u;
+                glow_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                glow_write.pImageInfo = &glow_info;
+                vkUpdateDescriptorSets(s.device, 1, &glow_write, 0, nullptr);
+            }
+#endif
         }
 
+#if !defined(VCSNX)
         if (bloom_ok &&
             !create_buffer(s, readback_bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -2973,6 +3103,7 @@ void destroy_backend(VulkanGeState &s) noexcept {
             bloom_ok = false;
         }
         if (bloom_ok) s.bloom_readback_capacity = readback_bytes;
+#endif
 
         s.bloom_enabled = bloom_ok;
         s.bloom_threshold = bloom_config.bloom.threshold;
@@ -5375,6 +5506,10 @@ bool ge_gpu_backend_texture_available(const GeGpuDrawDescriptor &draw) noexcept 
     return true;
 }
 
+#if defined(VCSNX)
+bool vcsnx_game_playing() noexcept;  // ge_renderer.cpp: the HUD gate (the game is being played)
+#endif
+
 bool ge_gpu_backend_upload_decoded_texture(const GeGpuDrawDescriptor &draw, std::uint32_t width,
                                            std::uint32_t height,
                                            std::span<const std::byte> rgba8) noexcept {
@@ -5423,6 +5558,37 @@ bool ge_gpu_backend_upload_decoded_texture(const GeGpuDrawDescriptor &draw, std:
         s.textures.erase(victim);
         ++s.report.texture_cache_evictions;
     }
+#if defined(VCSNX)
+    // VCSNX: interface art (menus, the controls screen) goes up as its HD copy at once when the RAM preload holds
+    // it; through the background pipeline the PSP's controls picture showed for a few frames first (the author,
+    // 2026-10-14). Same entry as a swapped-in replacement: HD size, its scale shift, the original's signature.
+    if (vcsnx::hd_copy_at_upload(draw.through, vcsnx_game_playing())) {
+        vcs::ReplacementTexture hd;
+        TextureEntry hd_entry{};
+        if (vcs::texture_replacement_now(rgba8, width, height, hd) &&
+            s.replaced_bytes + std::uint64_t{hd.width} * hd.height * 4u * 4u / 3u <= s.replacement_budget &&
+            create_texture(s, hd.width, hd.height,
+                           std::span<const std::byte>(reinterpret_cast<const std::byte *>(hd.rgba.data()), hd.rgba.size()),
+                           sampler, hd_entry)) {
+            hd_entry.sampler = sampler;
+            hd_entry.source_signature = signature;
+            hd_entry.width = hd.width;
+            hd_entry.height = hd.height;
+            hd_entry.scale_shift = hd.scale_shift;
+            hd_entry.last_used_epoch = s.frame_epoch;
+            s.replaced_bytes += std::uint64_t{hd.width} * hd.height * 4u * 4u / 3u;
+            s.textures.emplace(key, hd_entry);
+            if (s.texture_content.size() > 100000u) s.texture_content.clear();
+            s.texture_content[content] = key;
+            ++s.report.texture_images_created;
+            ++s.report.decoded_texture_uploads;
+            s.report.decoded_texture_bytes += static_cast<std::uint64_t>(width) * height * 4u;
+            s.report.unique_texture_keys = s.textures.size();
+            s.report.unique_texture_image_keys = s.textures.size();
+            return true;
+        }
+    }
+#endif
     TextureEntry entry{};
     if (!create_texture(s, width, height, rgba8, sampler, entry)) {
         ++s.report.rejected_texture_decodes;
@@ -6597,7 +6763,7 @@ static bool finish_color_frame_impl(std::uint64_t vblank) noexcept {
                 // Deliberately plain CPU math, not another Vulkan pass: the
                 // only new pixel logic stays easy to read and to disable
                 // without touching the GPU side at all.
-                if (s.bloom_enabled) {
+                if (s.bloom_enabled && s.bloom_readback_memory != VK_NULL_HANDLE) {  // VCSNX adds it on the GPU
                     void *bloom_mapped = nullptr;
                     if (vkMapMemory(s.device, s.bloom_readback_memory, 0,
                                     s.bloom_readback_capacity, 0, &bloom_mapped) == VK_SUCCESS) {
@@ -7149,17 +7315,22 @@ static bool finish_color_frame_impl(std::uint64_t vblank) noexcept {
         VkRenderPassBeginInfo bloom_begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
         bloom_begin.renderPass = s.bloom_render_pass;
         bloom_begin.framebuffer = s.bloom_framebuffer;
-        bloom_begin.renderArea.extent = {s.width, s.height};
+#if defined(VCSNX)
+        const std::uint32_t glow_width = s.bloom_width, glow_height = s.bloom_height;
+#else
+        const std::uint32_t glow_width = s.width, glow_height = s.height;
+#endif
+        bloom_begin.renderArea.extent = {glow_width, glow_height};
         bloom_begin.clearValueCount = 1u;
         bloom_begin.pClearValues = &bloom_clear;
         vkCmdBeginRenderPass(s.command_buffer, &bloom_begin, VK_SUBPASS_CONTENTS_INLINE);
 
         VkViewport bloom_viewport{};
-        bloom_viewport.width = static_cast<float>(s.width);
-        bloom_viewport.height = static_cast<float>(s.height);
+        bloom_viewport.width = static_cast<float>(glow_width);
+        bloom_viewport.height = static_cast<float>(glow_height);
         bloom_viewport.maxDepth = 1.0f;
         vkCmdSetViewport(s.command_buffer, 0, 1, &bloom_viewport);
-        VkRect2D bloom_scissor{{0, 0}, {s.width, s.height}};
+        VkRect2D bloom_scissor{{0, 0}, {glow_width, glow_height}};
         vkCmdSetScissor(s.command_buffer, 0, 1, &bloom_scissor);
 
         vkCmdBindPipeline(s.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, s.bloom_pipeline);
@@ -7176,6 +7347,35 @@ static bool finish_color_frame_impl(std::uint64_t vblank) noexcept {
 
         vkCmdEndRenderPass(s.command_buffer);
 
+#if defined(VCSNX)
+        // The glow (left SHADER_READ_ONLY by its pass) is written before the add pass samples it; color_image
+        // goes from being sampled to being the add pass's attachment, which leaves it TRANSFER_SRC_OPTIMAL again.
+        transition_image(s.command_buffer, s.bloom_image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                         VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        transition_image(s.command_buffer, s.color_image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_SHADER_READ_BIT,
+                         VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        VkRenderPassBeginInfo add_begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+        add_begin.renderPass = s.bloom_add_render_pass;
+        add_begin.framebuffer = s.bloom_add_framebuffer;
+        add_begin.renderArea.extent = {s.width, s.height};
+        vkCmdBeginRenderPass(s.command_buffer, &add_begin, VK_SUBPASS_CONTENTS_INLINE);
+        VkViewport add_viewport{};
+        add_viewport.width = static_cast<float>(s.width);
+        add_viewport.height = static_cast<float>(s.height);
+        add_viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(s.command_buffer, 0, 1, &add_viewport);
+        VkRect2D add_scissor{{0, 0}, {s.width, s.height}};
+        vkCmdSetScissor(s.command_buffer, 0, 1, &add_scissor);
+        vkCmdBindPipeline(s.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, s.bloom_add_pipeline);
+        vkCmdBindDescriptorSets(s.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, s.bloom_pipeline_layout, 0, 1,
+                                &s.bloom_add_descriptor_set, 0, nullptr);
+        vkCmdDraw(s.command_buffer, 3u, 1u, 0u, 0u);
+        vkCmdEndRenderPass(s.command_buffer);
+#else
         transition_image(s.command_buffer, s.color_image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_SHADER_READ_BIT,
                          VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
@@ -7187,6 +7387,7 @@ static bool finish_color_frame_impl(std::uint64_t vblank) noexcept {
         bloom_region.imageExtent = {s.width, s.height, 1u};
         vkCmdCopyImageToBuffer(s.command_buffer, s.bloom_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                s.bloom_readback_buffer, 1, &bloom_region);
+#endif
     }
 
     // FXAA: one fullscreen pass reading color_image (world + HUD, already

@@ -17,12 +17,30 @@ struct HudShrink {
 
 // Smaller HUD (user request: text, money and zone names too big on the Switch). The too-big clusters
 // shrink toward their own corner or edge, picked from the centre (or the clip) by thirds of the frame:
-// top right, bottom right and bottom centre. The game draws a whole text box, a whole line or one
+// top right, bottom right and bottom centre (bottom-right text right-aligned to the edge goes to the corner
+// however long, with the top-right cluster's margins, and the zone name on the vehicle name's line). The game draws a whole text box, a whole line or one
 // digit per draw, so nothing that belongs together is split. Everything else keeps its place. The radar is
 // left as it is: draws inside its corner and its map tiles, clipped to a scissor there. So is the
-// help text box at the top left, which the user wants at the game's own size.
+// help text box at the top left, which the user wants at the game's own size. Text centred in the middle of the
+// frame (cutscene subtitles, `text`) shrinks toward the frame's centre; other art there keeps its size.
 [[nodiscard]] HudShrink hud_shrink_for(const HudBox &draw, const HudBox &scissor, float frame_width,
-                                       float frame_height, float scale, bool depth_tested = false) noexcept;
+                                       float frame_height, float scale, bool depth_tested = false,
+                                       bool text = false) noexcept;
+
+// A draw's texture (address 0 when untextured).
+struct HudTexture {
+    std::uint32_t address{}, width{}, height{}, format{};
+};
+// Whether a draw is the game's text: its fonts are 4-bit palette textures (GE format 4) of 128 texels or more
+// across (Mac [hud-box], 2026-10-14: the subtitle font is 256 x 256 CLUT4; sprites crossing the screen are
+// 64 x 64 CLUT8).
+[[nodiscard]] bool hud_is_text(const HudTexture &texture) noexcept;
+
+// Whether a 2D draw may be shrunk at all: filled geometry (triangles, strips, fans, sprites), not a clear, not
+// a glow drawn in the world, and not a full-width backdrop (fades, letterbox bars) unless it is text: a long
+// subtitle line is as wide as a backdrop (435 of 480 units in the author's screenshot, 2026-10-14).
+[[nodiscard]] bool hud_shrink_candidate(bool filled_primitive, bool clear_mode, bool full_width,
+                                        bool not_world_effect, bool text) noexcept;
 
 [[nodiscard]] inline float hud_shrunk(float value, float anchor, float scale) noexcept {
     return anchor + (value - anchor) * scale;
@@ -66,7 +84,8 @@ private:
 // gameplay rate and only turns off after kHudOffAfterMs without a single world or menu draw (a loading
 // screen). The pause menu turns it off from its first draw until kMenuHoldMs after its last (note_menu_draw;
 // its target is never used while playing): in run 16 a bottom-right element drawn during the menu, outside
-// that target, flashed in its shrunk place for the menu's first seconds.
+// that target, flashed in its shrunk place for the menu's first seconds. The first world draw after the menu
+// ends it at once (the HUD grew for the first frames of play after the pause, 2026-10-14).
 inline constexpr long long kHudOffAfterMs = 3000;
 inline constexpr long long kMenuHoldMs = 250;
 

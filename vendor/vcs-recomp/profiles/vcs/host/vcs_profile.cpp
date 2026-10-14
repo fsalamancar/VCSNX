@@ -54,6 +54,10 @@
 #include "ge_timeline.hpp"
 #include "gpu_frame_hold.hpp"
 #include "guest_io.hpp"
+#include "hd_movies.hpp"
+#include "hd_preload.hpp"
+#include "loading_screen.hpp"
+#include "trace_clock.hpp"
 #include "ram_files.hpp"
 #include "hw_verify.hpp"
 #include "vcsnx_hooks.hpp"
@@ -680,6 +684,39 @@ std::size_t read_virtual_disc(VirtualDiscHandle &handle, std::span<std::uint8_t>
                 requested - written, file->size - file_offset));
 
 #if defined(VCSNX)
+            // VCSNX: the game's loading screen (artwork and bar) is up at the first read of a level archive: the
+            // city's archives and every HD replacement are read into RAM now, and the game waits here until they
+            // are in ("en la parte de los artworks cargas todo. no en los videos", the author, 2026-10-14;
+            // platform/switch/ram_files.hpp, hd_preload.hpp).
+            static bool hd_waited = false;  // the game thread only
+            if (!hd_waited && vcsnx::waits_for_hd_preload(file->native_path.string())) {
+                hd_waited = true;
+                const auto wait_begin = std::chrono::steady_clock::now();
+                vcsnx::ram_files().start();
+                vcsnx::hd_preload().start();
+                // VCSNX's own loading screen meanwhile: the artwork in HD, another every 7 s, a bar that follows
+                // the loads (platform/switch/loading_screen.hpp); the game draws nothing while it waits here.
+                vcsnx::loading_screen().begin_wait(vcsnx::trace_ms());
+                // Above the HD preload's workers meanwhile, or the one on this core holds it and the screen
+                // freezes (vcsnx::ScopedThreadPriority).
+                const vcsnx::ScopedThreadPriority raised(vcsnx::kLoadingWaitPriority);
+                while (!vcsnx::hd_preload().done() || !vcsnx::ram_files().loaded()) {
+                    const vcsnx::HdPreloadProgress hd = vcsnx::hd_preload().progress();
+                    const auto [ram_done, ram_total] = vcsnx::ram_files().progress();
+                    vcsnx::loading_screen().update_wait(vcsnx::trace_ms(),
+                                                        vcsnx::loading_fraction(hd.done, hd.total, ram_done, ram_total));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                }
+                vcsnx::loading_screen().update_wait(vcsnx::trace_ms(), 1.0f);
+                vcsnx::hd_preload().wait();
+                vcsnx::ram_files().wait();
+                vcsnx::loading_screen().finish_wait();
+                const vcsnx::HdPreloadProgress after = vcsnx::hd_preload().progress();
+                std::cerr << "[hd-preload] t=" << vcsnx::trace_ms() << "ms loading screen waited "
+                          << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - wait_begin).count()
+                          << " ms for the city's archives and " << after.total << " HD textures (" << (after.bytes >> 20)
+                          << " MB in RAM)\n";
+            }
             // VCSNX: the city's archives may be in RAM already (platform/switch/ram_files.hpp).
             if (const auto ram = vcsnx::ram_files().find(file->native_path);
                 !ram.empty() && file_offset + chunk <= ram.size()) {
@@ -811,6 +848,9 @@ std::unordered_set<std::uint32_t> movie_output_buffers;
 
 void close_video_decoder(MpegContextState &state) {
     state.video.close();
+#if defined(VCSNX)
+    vcsnx::hd_movie_close();
+#endif
     movie_output_buffers.clear();
     // The soundtrack belongs to the same movie. Leaving it open meant the
     // second cutscene kept reading the first one's exhausted stream and played
@@ -826,6 +866,9 @@ bool open_video_decoder(MpegContextState &state) {
     if (state.video.is_open()) return true;
     if (state.source_path.empty() || state.header.width == 0u || state.header.height == 0u) return false;
     if (!state.video.open(state.source_path)) return false;
+#if defined(VCSNX)
+    vcsnx::hd_movie_open(state.source_path); // HD/<name>.mp4 if the player made one (platform/switch/hd_movies.hpp)
+#endif
     state.video_eof = false;
     state.decoded_video_frames = 0u;
     state.consumed_video_packets = 0u;
@@ -841,6 +884,9 @@ bool read_video_frame(MpegContextState &state, std::span<std::uint8_t> frame) {
         return false;
     }
     ++state.decoded_video_frames;
+#if defined(VCSNX)
+    vcsnx::hd_movie_frame();
+#endif
     return true;
 }
 
@@ -7721,6 +7767,10 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
         VCSNX_GE_TL('F');
         const bool gpu_frame_ready = ge_gpu_backend_finish_color_frame(display_vblank_index);
         VCSNX_GE_TL('f', gpu_frame_ready ? 1u : 0u);
+#if defined(VCSNX)
+        // VCSNX: frames without the loading artwork take VCSNX's loading screen down (platform/switch/loading_screen.hpp).
+        if (gpu_frame_ready) vcsnx::loading_screen().note_frame_finished();
+#endif
         // Counts toward Display.ShowFPS's measured rate only when this vblank
         // actually produced a new frame -- see fps_overlay_note_presented_
         // frame()'s comment for why counting every vblank tick instead read
@@ -7774,6 +7824,12 @@ void install_profile(psprecomp::Runtime &runtime, std::uint32_t user_arena_start
         }
         ge_gpu_backend_unlock();
         VCSNX_GE_TL('P');
+#if defined(VCSNX)
+        // VCSNX: a movie on screen with an HD copy shows the HD frame instead (platform/switch/hd_movies.hpp).
+        if (movie_output_buffers.count(normalize_ram_address(display_state.frame_buffer)) != 0u &&
+            vcsnx::hd_movie_present())
+            presented_gpu_frame = true;
+#endif
         if (!presented_gpu_frame) {
             holding_gpu_frame = false;
             // The window is showing the guest framebuffer that the software GE

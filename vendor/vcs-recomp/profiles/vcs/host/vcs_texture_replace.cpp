@@ -1,4 +1,12 @@
 #include "vcs_texture_replace.hpp"
+#if defined(VCSNX)
+#include <cstdlib>
+#include <optional>
+
+#include "controls_screen.hpp"
+#include "hd_preload.hpp"
+#include "loading_screen.hpp"
+#endif
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -97,6 +105,91 @@ void texture_pipeline_configure(const std::string &directory, bool replacement_e
         std::error_code ec;
         std::filesystem::create_directories(directory, ec);
     }
+#if defined(VCSNX)
+    const vcsnx::HdDecoder decode_png = [](const std::string &file) -> std::optional<vcsnx::HdImage> {
+        int w = 0, h = 0, channels = 0;
+        unsigned char *loaded = stbi_load(file.c_str(), &w, &h, &channels, 4);
+        if (loaded == nullptr) return std::nullopt;
+        vcsnx::HdImage image;
+        image.width = static_cast<std::uint32_t>(w);
+        image.height = static_cast<std::uint32_t>(h);
+        image.rgba.assign(loaded, loaded + static_cast<std::size_t>(w) * h * 4u);
+        stbi_image_free(loaded);
+        return image;
+    };
+    // VCSNX: VCSNX's loading screen takes its other artworks from the HD images in RAM (platform/switch/loading_screen.hpp).
+    vcsnx::loading_screen().configure([](std::uint32_t width, std::uint32_t height) {
+        return vcsnx::hd_preload().images_of_size(width, height);
+    });
+    // VCSNX: Settings > Controls takes VCSNX's picture only when it is there (platform/switch/controls_screen.hpp).
+    {
+        std::error_code ec;
+        const bool controls_picture =
+            replacement_enabled &&
+            std::filesystem::is_regular_file(std::filesystem::path(directory) / vcsnx::kControlsPictureFile, ec);
+        vcsnx::controls_screen().set_picture_present(controls_picture);
+        std::fprintf(stderr, "[controls] VCSNX's picture %s\n", controls_picture ? "found" : "absent: the game's page");
+    }
+    // VCSNX: every replacement decoded into RAM (platform/switch/hd_preload.hpp), from the game's loading screen,
+    // which waits for it at the first level archive read (vcs_profile.cpp). VCSNX_HD_PRELOAD=0 turns it off.
+    if (replacement_enabled && vcsnx::hd_preload_enabled(std::getenv("VCSNX_HD_PRELOAD"))) {
+        // 800 MB: the 466 MB pack (part 1 and the map) plus ~170 MB of city textures from a dump, with room.
+        constexpr std::uint64_t kBudget = std::uint64_t{800} << 20;
+        vcsnx::hd_preload().configure(directory, kBudget, 3u, decode_png);
+    }
+#endif
+}
+
+bool texture_replacement_now(std::span<const std::byte> rgba8, std::uint32_t width, std::uint32_t height,
+                             ReplacementTexture &out) noexcept {
+#if defined(VCSNX)
+    PipelineState &p = pipeline();
+    std::string directory;
+    bool replacement = false;
+    {
+        std::lock_guard<std::mutex> lock(p.mutex);
+        directory = p.directory;
+        replacement = p.replacement_enabled;
+    }
+    const std::size_t exact_bytes = static_cast<std::size_t>(width) * height * 4u;
+    if (!replacement || width < 4u || height < 4u || rgba8.size() < exact_bytes) return false;
+    const bool serves = vcsnx::hd_preload().serves(directory);
+    const bool artwork_now = vcsnx::reads_hd_artwork_now(width, height, serves);
+    if (!serves && !artwork_now) return false;
+    const std::uint64_t hash = texture_content_hash(rgba8.first(exact_bytes), width, height);
+    // VCSNX's loading screen shows this artwork (platform/switch/loading_screen.hpp).
+    vcsnx::loading_screen().note_artwork(hash, width, height, reinterpret_cast<const std::uint8_t *>(rgba8.data()));
+    std::shared_ptr<const vcsnx::HdImage> image;
+    if (artwork_now) {
+        // A loading artwork comes before the preload: its HD copy from its file, so the PSP's never shows.
+        int w = 0, h = 0, channels = 0;
+        if (unsigned char *loaded = stbi_load((directory + "/" + hash_file_name(hash)).c_str(), &w, &h, &channels, 4)) {
+            auto decoded = std::make_shared<vcsnx::HdImage>();
+            decoded->width = static_cast<std::uint32_t>(w);
+            decoded->height = static_cast<std::uint32_t>(h);
+            decoded->rgba.assign(loaded, loaded + static_cast<std::size_t>(w) * h * 4u);
+            stbi_image_free(loaded);
+            image = std::move(decoded);
+        }
+    } else {
+        image = vcsnx::hd_preload().find(hash);
+    }
+    if (image) vcsnx::loading_screen().note_artwork_hd(hash, image);  // shown by VCSNX's loading screen
+    if (!image) return false;
+    const auto shift = vcsnx::hd_scale_shift(image->width, image->height, width, height);
+    if (!shift) return false;
+    out.width = image->width;
+    out.height = image->height;
+    out.scale_shift = *shift;
+    out.rgba = image->rgba;
+    return true;
+#else
+    (void)rgba8;
+    (void)width;
+    (void)height;
+    (void)out;
+    return false;
+#endif
 }
 
 std::uint64_t texture_content_hash(std::span<const std::byte> rgba8, std::uint32_t width,
@@ -510,6 +603,11 @@ bool process_job(const PipelineState::Job &job, ReplacementTexture &out) noexcep
     if (job.width < 4u || job.height < 4u) return false;  // palettes / gradients: leave alone
     const std::uint64_t hash = texture_content_hash(pixels, job.width, job.height);
     const std::string file = directory + "/" + hash_file_name(hash);
+#if defined(VCSNX)
+    // VCSNX: the game's loading artwork, for VCSNX's loading screen (platform/switch/loading_screen.hpp).
+    vcsnx::loading_screen().note_artwork(hash, job.width, job.height,
+                                         job.rgba.size() >= exact_bytes ? job.rgba.data() : nullptr);
+#endif
 
     if (dump) {
         bool first = false;
@@ -530,6 +628,24 @@ bool process_job(const PipelineState::Job &job, ReplacementTexture &out) noexcep
             }
         }
     }
+#if defined(VCSNX)
+    // VCSNX: the replacement from RAM when the preload holds it (no SD read, no PNG decode on the console).
+    if (replacement && vcsnx::hd_preload().serves(directory)) {
+        if (const auto image = vcsnx::hd_preload().find(hash)) {
+            std::uint32_t k = 0u;
+            for (std::uint32_t s = 0u; s <= 3u; ++s)
+                if (image->width == (job.width << s) && image->height == (job.height << s)) k = s;
+            if (image->width == (job.width << k) && image->height == (job.height << k) && image->width <= 8192u &&
+                image->height <= 8192u) {
+                out.width = image->width;
+                out.height = image->height;
+                out.scale_shift = static_cast<std::uint8_t>(k);
+                out.rgba = image->rgba;
+                return true;
+            }
+        }
+    }
+#endif
     if (replacement && std::filesystem::exists(file)) {
         int w = 0, h = 0, channels = 0;
         if (unsigned char *loaded = stbi_load(file.c_str(), &w, &h, &channels, 4)) {

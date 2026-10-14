@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <string>
+#include <utility>
 
 namespace {
 
@@ -19,6 +20,13 @@ void require_anchor(const vcsnx::HudBox &draw, float ax, float ay, const char *w
     vcsnx_test::require(s.anchor_x == ax && s.anchor_y == ay && s.scale == 0.75f,
                         std::string(what) + ": anchor (" + std::to_string(s.anchor_x) + "," +
                             std::to_string(s.anchor_y) + ") scale " + std::to_string(s.scale));
+}
+
+// Where the point (x, y) of a draw with the bounds `draw` ends up after the shrink.
+std::pair<float, float> landed(const vcsnx::HudBox &draw, float x, float y) {
+    const vcsnx::HudShrink s = vcsnx::hud_shrink_for(draw, kFullScissor, kW, kH, 0.75f);
+    vcsnx_test::require(s.apply, "should shrink");
+    return {vcsnx::hud_shrunk(x, s.anchor_x, s.scale), vcsnx::hud_shrunk(y, s.anchor_y, s.scale)};
 }
 
 } // namespace
@@ -43,15 +51,79 @@ int main() {
         {"a money digit shrinks into the top-right corner", [] {
              require_anchor({442.0f, 70.0f, 455.0f, 89.0f}, kW, 0.0f, "money digit");
          }},
-        {"the zone name shrinks into the bottom-right corner", [] {
-             require_anchor({260.0f, 277.0f, 514.0f, 320.0f}, kW, kH, "zone name");
+        {"the vehicle name ends up in the bottom-right corner with the top-right HUD's right margin", [] {
+             // Photo of the console (2026-10-13, HudScale 0.75): the zone name's text ends at x 511 of the
+             // game's frame, the top-right HUD 20 units from the right edge. [hud-box], Switch, 2026-10-14:
+             // the vehicle name is right-aligned at the same x, 28 units above the zone name.
+             const auto [x, y] = landed({362.0f, 249.0f, 508.0f, 291.0f}, 511.0f, 269.6f);
+             require(std::fabs(x - (kW - 20.0f * 0.75f)) < 0.5f, "right margin like the top HUD's: x " + std::to_string(x));
+             require(std::fabs(y - (kH - 6.5f * 0.75f - 28.0f * 0.75f)) < 0.5f, "y " + std::to_string(y));
+         }},
+        {"the zone name sits where the vehicle name does", [] {
+             // The user (2026-10-14): "el texto de las ubicaciones en el mismo lugar que el de los autos, es
+             // decir un poco arriba". Zone name box (248,277)-(512,320), vehicle name (362,249)-(508,291).
+             const auto zone = landed({248.0f, 277.0f, 512.0f, 320.0f}, 511.0f, 297.6f);
+             const auto vehicle = landed({362.0f, 249.0f, 508.0f, 291.0f}, 511.0f, 297.6f - 28.0f);
+             require(std::fabs(zone.first - vehicle.first) < 0.5f && std::fabs(zone.second - vehicle.second) < 0.5f,
+                     "zone (" + std::to_string(zone.first) + "," + std::to_string(zone.second) + "), vehicle (" +
+                         std::to_string(vehicle.first) + "," + std::to_string(vehicle.second) + ")");
+         }},
+        {"a cutscene subtitle, clipped to the letterbox bar, stays at the bottom centre", [] {
+             // [hud-box], Switch, 2026-10-14: cutscene subtitles are clipped to the bottom bar (5,260)-(508,316),
+             // which reaches the right edge; they went to the bottom-right corner, 50 units right of centre.
+             const vcsnx::HudShrink s =
+                 vcsnx::hud_shrink_for({124.0f, 260.0f, 389.0f, 276.0f}, {5.0f, 260.0f, 508.0f, 316.0f}, kW, kH, 0.75f, true);
+             require(s.apply && s.anchor_x == kW / 2 && s.anchor_y == kH,
+                     "anchor (" + std::to_string(s.anchor_x) + "," + std::to_string(s.anchor_y) + ")");
+         }},
+        {"a long zone name, past the middle third, still goes to the bottom-right corner", [] {
+             // "'101 Bayshore Avenue'" (photo): right-aligned like every zone name, but its centre falls in
+             // the middle third, so it shrank toward the bottom centre and stopped 65 units from the edge.
+             const auto long_name = landed({150.0f, 277.0f, 514.0f, 320.0f}, 511.0f, 297.6f);
+             const auto short_name = landed({260.0f, 277.0f, 514.0f, 320.0f}, 511.0f, 297.6f);
+             require(long_name == short_name, "both end where a short one does: x " + std::to_string(long_name.first));
+         }},
+        {"a long subtitle stays at the bottom centre", [] {
+             // Centred text never reaches the right edge the way a right-aligned zone name does.
+             require_anchor({40.0f, 290.0f, 472.0f, 310.0f}, kW / 2, kH, "long subtitle");
          }},
         {"a subtitle shrinks toward the bottom centre", [] {
              require_anchor({130.0f, 290.0f, 380.0f, 310.0f}, kW / 2, kH, "subtitle");
          }},
-        {"a centred message keeps its size", [] {
+        {"centred art in the middle of the frame that is not text keeps its size", [] {
              require(!vcsnx::hud_shrink_for({180.0f, 140.0f, 330.0f, 170.0f}, kFullScissor, kW, kH, 0.75f).apply,
-                     "only the top-right, bottom-right and bottom-centre clusters shrink");
+                     "untextured");
+             const vcsnx::HudTexture sprite{0x09713830u, 64u, 64u, 5u};  // a smoke sprite (Mac [hud-box])
+             require(!vcsnx::hud_shrink_for({110.0f, 118.0f, 406.0f, 212.0f}, kFullScissor, kW, kH, 0.75f, false,
+                                            vcsnx::hud_is_text(sprite))
+                          .apply,
+                     "8-bit palette sprite");
+         }},
+        {"a cutscene subtitle in the middle of the frame shrinks toward the frame's centre", [] {
+             // The author (2026-10-14): Phil's big subtitle ("he never ever told me i was special") was "en el
+             // medio". [hud-box], Switch: a centred block (110,118)-(406,212) with a drop shadow kept its size.
+             const vcsnx::HudShrink s = vcsnx::hud_shrink_for({110.0f, 118.0f, 406.0f, 212.0f}, kFullScissor, kW, kH,
+                                                              0.75f, false, true);
+             require(s.apply && s.anchor_x == kW / 2 && s.anchor_y == kH / 2,
+                     "anchor (" + std::to_string(s.anchor_x) + "," + std::to_string(s.anchor_y) + ")");
+         }},
+        {"a subtitle line as wide as a backdrop still shrinks, a backdrop does not", [] {
+             // The author's screenshot, 2026-10-14: "there's so much of it at the warehouse one match'll blow it all
+             // the" is 435 units wide, over the 90%-of-480 line that marks fades and letterbox bars as backdrops.
+             require(vcsnx::hud_shrink_candidate(true, false, true, true, true), "a wide line of text");
+             require(!vcsnx::hud_shrink_candidate(true, false, true, true, false), "a fade or a letterbox bar");
+             require(vcsnx::hud_shrink_candidate(true, false, false, true, false), "a HUD sprite");
+             require(!vcsnx::hud_shrink_candidate(false, false, false, true, true), "points and lines");
+             require(!vcsnx::hud_shrink_candidate(true, true, false, true, true), "a clear");
+             require(!vcsnx::hud_shrink_candidate(true, false, false, false, true), "a glow in the world");
+         }},
+        {"the game's text is told apart by its 4-bit palette font textures", [] {
+             // Mac [hud-box], 2026-10-14: subtitles use 0x08706bf0, 256 x 256, CLUT4 (format 4); the sprites that
+             // cross the screen, 64 x 64 CLUT8 (format 5).
+             require(vcsnx::hud_is_text({0x08706bf0u, 256u, 256u, 4u}), "the subtitle font");
+             require(!vcsnx::hud_is_text({0x09713830u, 64u, 64u, 5u}), "a sprite");
+             require(!vcsnx::hud_is_text({0x08706bf0u, 32u, 32u, 4u}), "a small 4-bit icon");
+             require(!vcsnx::hud_is_text({}), "untextured");
          }},
         {"the pager's scrolling message stays inside the pager", [] {
              // Mac frames: the message is longer than the pager screen and clipped to it; its anchor must
@@ -137,10 +209,21 @@ int main() {
              require(gate.on(1000), "playing");
              gate.note_menu_draw(1100);
              require(!gate.on(1100), "the menu's first draw");
-             gate.note_world_draw(1200);
-             require(!gate.on(1200), "world drawn behind the menu");
+             require(!gate.on(1160), "between two menu frames (every 4 vblanks)");
+             gate.note_menu_draw(1167);
              gate.note_menu_draw(5000);
              require(!gate.on(5000), "a long stay in the menu");
+         }},
+        {"the HUD is small again from the first gameplay frame after the pause menu", [] {
+             // The author, 2026-10-14: "se agranda el hud al volver de la pausa". The menu's hold kept the shrink
+             // off for 250 ms after its last frame, while the world was already drawn again (Mac run with the
+             // console save: no world draw while the menu is open).
+             vcsnx::HudGate gate;
+             for (int i = 0; i < vcsnx::kWorldDrawsForPlay; ++i) gate.note_world_draw(1000);
+             for (long long t = 1100; t <= 2000; t += 67) gate.note_menu_draw(t);
+             require(!gate.on(2000), "in the menu");
+             gate.note_world_draw(2033);
+             require(gate.on(2033), "the first frame of play");
          }},
         {"closing the pause menu brings the shrink straight back", [] {
              // The Switch stops drawing the world behind the menu, for longer than kHudOffAfterMs.
